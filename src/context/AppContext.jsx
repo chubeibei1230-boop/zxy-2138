@@ -327,8 +327,16 @@ export function AppProvider({ children }) {
   }, []);
 
   const bulkUpdateStatus = useCallback(async (ids, status) => {
-    await Promise.all(ids.map(id => db.materials.update(id, { status })));
-    const updates = ids.map(id => ({ id, status }));
+    const updates = [];
+    await Promise.all(ids.map(async id => {
+      const material = await db.materials.get(id);
+      const updateData = { status };
+      if (status === MATERIAL_STATUS.READY && material && material.preparedQty < material.requiredQty) {
+        updateData.preparedQty = material.requiredQty;
+      }
+      await db.materials.update(id, updateData);
+      updates.push({ id, ...updateData });
+    }));
     dispatch({ type: 'UPDATE_MATERIALS', payload: updates });
   }, []);
 

@@ -106,7 +106,10 @@ export default function HandoverModal() {
   const stats = useMemo(() => {
     const total = items.length;
     const confirmed = items.filter(i => i.confirmed).length;
-    const followUp = items.filter(i => i.followUp).length;
+    const followUp = items.filter(i => {
+      const fStatus = getFollowUpStatus(i.material);
+      return fStatus !== FOLLOW_UP_STATUS.NONE && fStatus !== FOLLOW_UP_STATUS.COMPLETED;
+    }).length;
     const shortage = items.filter(i => {
       const m = i.material;
       return m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE;
@@ -130,7 +133,10 @@ export default function HandoverModal() {
       case 'unconfirmed':
         return items.filter(i => !i.confirmed);
       case 'followup':
-        return items.filter(i => i.followUp);
+        return items.filter(i => {
+          const fStatus = getFollowUpStatus(i.material);
+          return fStatus !== FOLLOW_UP_STATUS.NONE && fStatus !== FOLLOW_UP_STATUS.COMPLETED;
+        });
       default:
         return items;
     }
@@ -153,7 +159,10 @@ export default function HandoverModal() {
       return m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE;
     }).length;
     const review = groupItems.filter(i => i.material.status === MATERIAL_STATUS.REVIEW).length;
-    const followUp = groupItems.filter(i => i.followUp).length;
+    const followUp = groupItems.filter(i => {
+      const fStatus = getFollowUpStatus(i.material);
+      return fStatus !== FOLLOW_UP_STATUS.NONE && fStatus !== FOLLOW_UP_STATUS.COMPLETED;
+    }).length;
     return { total, confirmed, shortage, review, followUp };
   };
 

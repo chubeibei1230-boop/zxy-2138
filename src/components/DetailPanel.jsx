@@ -230,7 +230,20 @@ export default function DetailPanel() {
               <select
                 className="form-input"
                 value={detailMaterial.status}
-                onChange={async (e) => await updateMaterialField(detailMaterial.id, 'status', e.target.value)}
+                onChange={async (e) => {
+                  const newStatus = e.target.value;
+                  await updateMaterialField(detailMaterial.id, 'status', newStatus);
+                  if (newStatus === MATERIAL_STATUS.READY) {
+                    if (detailMaterial.preparedQty < detailMaterial.requiredQty) {
+                      await updateMaterialField(detailMaterial.id, 'preparedQty', detailMaterial.requiredQty);
+                    }
+                    if (getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.COMPLETED) {
+                      if (confirm('物料已标记为已备齐，是否同步将跟进状态更新为已完成？')) {
+                        await markFollowUpCompleted([detailMaterial.id]);
+                      }
+                    }
+                  }
+                }}
               >
                 {Object.entries(STATUS_LABELS).map(([v, l]) => (
                   <option key={v} value={v}>{l}</option>
