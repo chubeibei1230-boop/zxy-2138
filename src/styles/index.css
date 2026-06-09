@@ -1732,7 +1732,158 @@ textarea:focus {
     font-size: 15px;
   }
 
-  .handover-modal-footer .btn {
+  .handover-modal-footer .btn {     
     min-width: 100%;
   }
+}
+
+.follow-up-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid;
+  cursor: default;
+}
+
+.material-row.follow-up-pending {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.06) 0%, transparent 30%);
+}
+
+.material-row.follow-up-overdue {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, transparent 30%);
+}
+
+.material-row.follow-up-completed {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.04) 0%, transparent 30%);
+}
+
+.follow-up-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.follow-up-info-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  background: #f8fafc;
+  border-radius: 4px;
+}
+
+.follow-up-info-item.overdue {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.follow-up-info-item.owner {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.follow-up-info-item.note {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #fefce8;
+  color: #854d0e;
+}
+
+.followup-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+  .followup-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.followup-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.followup-status-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  border: 1px dashed #e2e8f0;
+}
+
+.followup-status-summary .status-icon {
+  font-size: 24px;
+}
+
+.followup-status-summary .status-text {
+  flex: 1;
+}
+
+.followup-status-summary .status-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.followup-status-summary .status-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.followup-tip {
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border: 1px solid #e0f2fe;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #0369a1;
+  margin-top: 8px;
+}
+
+.followup-tip.warning {
+  background: #fffbeb;
+  border-color: #fef3c7;
+  color: #92400e;
+}
+
+.followup-actions-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0;
+  margin-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.follow-up-quick-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid;
+  margin-left: 4px;
 }

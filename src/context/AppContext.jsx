@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus } from '../db';
 
 const AppContext = createContext(null);
 
@@ -23,6 +23,7 @@ const initialState = {
     personInCharges: [],
     statuses: [],
     shortageOnly: false,
+    followUpStatuses: [],
   },
   groupBy: GROUP_BY.ROOM,
   reviewMode: false,
@@ -188,7 +189,7 @@ export function AppProvider({ children }) {
   }, []);
 
   const filteredMaterials = useMemo(() => {
-    const { dateRange, roomIds, personInCharges, statuses, shortageOnly } = state.filters;
+    const { dateRange, roomIds, personInCharges, statuses, shortageOnly, followUpStatuses } = state.filters;
     let result = [...state.materials];
 
     if (dateRange.start) {
@@ -215,6 +216,9 @@ export function AppProvider({ children }) {
     if (shortageOnly) {
       result = result.filter(m => m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE);
     }
+    if (followUpStatuses.length > 0) {
+      result = result.filter(m => followUpStatuses.includes(getFollowUpStatus(m)));
+    }
 
     if (state.reviewMode) {
       result = result.filter(m =>
@@ -235,22 +239,41 @@ export function AppProvider({ children }) {
     const shortageItems = all.filter(m => m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE).length;
     const readyCount = all.filter(m => m.status === MATERIAL_STATUS.READY && m.preparedQty >= m.requiredQty).length;
 
+    const followUpPendingCount = all.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.PENDING).length;
+    const followUpOverdueCount = all.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.OVERDUE).length;
+    const followUpCompletedCount = all.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.COMPLETED).length;
+
     const roomStats = {};
     state.rooms.forEach(room => {
       const roomMaterials = all.filter(m => m.roomId === room.id);
       const roomTotal = roomMaterials.length;
       const roomReady = roomMaterials.filter(m => m.status === MATERIAL_STATUS.READY && m.preparedQty >= m.requiredQty).length;
       const roomShortage = roomMaterials.reduce((s, m) => s + Math.max(0, m.requiredQty - m.preparedQty), 0);
+      const roomFollowUpPending = roomMaterials.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.PENDING).length;
+      const roomFollowUpOverdue = roomMaterials.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.OVERDUE).length;
       roomStats[room.id] = {
         roomName: room.name,
         total: roomTotal,
         ready: roomReady,
         shortageQty: roomShortage,
         rate: roomTotal > 0 ? Math.round((roomReady / roomTotal) * 100) : 0,
+        followUpPending: roomFollowUpPending,
+        followUpOverdue: roomFollowUpOverdue,
       };
     });
 
-    return { totalRequired, totalPrepared, shortageQty, shortageItems, readyCount, totalItems: all.length, roomStats };
+    return {
+      totalRequired,
+      totalPrepared,
+      shortageQty,
+      shortageItems,
+      readyCount,
+      totalItems: all.length,
+      roomStats,
+      followUpPendingCount,
+      followUpOverdueCount,
+      followUpCompletedCount,
+    };
   }, [state.materials, state.rooms]);
 
   const groupedMaterials = useMemo(() => {
@@ -309,6 +332,33 @@ export function AppProvider({ children }) {
     dispatch({ type: 'UPDATE_MATERIALS', payload: updates });
   }, []);
 
+  const bulkUpdateFollowUp = useCallback(async (ids, followUpUpdates) => {
+    const { followUpStatus, followUpNote, followUpOwner, followUpDueTime, followUpCompletedAt, followUp } = followUpUpdates;
+    const updates = {};
+    if (followUpStatus !== undefined) updates.followUpStatus = followUpStatus;
+    if (followUpNote !== undefined) updates.followUpNote = followUpNote;
+    if (followUpOwner !== undefined) updates.followUpOwner = followUpOwner;
+    if (followUpDueTime !== undefined) updates.followUpDueTime = followUpDueTime;
+    if (followUpCompletedAt !== undefined) updates.followUpCompletedAt = followUpCompletedAt;
+    if (followUp !== undefined) updates.followUp = followUp;
+
+    if (Object.keys(updates).length === 0) return;
+
+    await Promise.all(ids.map(id => db.materials.update(id, updates)));
+    const payload = ids.map(id => ({ id, ...updates }));
+    dispatch({ type: 'UPDATE_MATERIALS', payload });
+  }, []);
+
+  const markFollowUpCompleted = useCallback(async (ids) => {
+    const updates = {
+      followUpStatus: FOLLOW_UP_STATUS.COMPLETED,
+      followUpCompletedAt: new Date().toISOString(),
+    };
+    await Promise.all(ids.map(id => db.materials.update(id, updates)));
+    const payload = ids.map(id => ({ id, ...updates }));
+    dispatch({ type: 'UPDATE_MATERIALS', payload });
+  }, []);
+
   const addMaterial = useCallback(async (material) => {
     const id = await db.materials.add(material);
     dispatch({ type: 'ADD_MATERIALS', payload: [{ ...material, id }] });
@@ -358,11 +408,15 @@ export function AppProvider({ children }) {
       handoverId,
       materialId: m.id,
       confirmed: false,
-      followUp: false,
+      followUp: m.followUp || false,
       itemRemark: '',
       originalStatus: m.status,
       originalPreparedQty: m.preparedQty,
       confirmedPreparedQty: m.preparedQty,
+      followUpStatus: m.followUpStatus || FOLLOW_UP_STATUS.NONE,
+      followUpNote: m.followUpNote || '',
+      followUpOwner: m.followUpOwner || '',
+      followUpDueTime: m.followUpDueTime || '',
     }));
 
     const itemIds = await db.handoverItems.bulkAdd(items, { allKeys: true });
@@ -429,6 +483,35 @@ export function AppProvider({ children }) {
 
     if (updates.followUp !== undefined) {
       materialUpdates.followUp = updates.followUp;
+      if (updates.followUp && (!material.followUpStatus || material.followUpStatus === FOLLOW_UP_STATUS.NONE || material.followUpStatus === FOLLOW_UP_STATUS.COMPLETED)) {
+        materialUpdates.followUpStatus = FOLLOW_UP_STATUS.PENDING;
+      }
+      if (!updates.followUp && material.followUpStatus && material.followUpStatus !== FOLLOW_UP_STATUS.COMPLETED) {
+        materialUpdates.followUpStatus = FOLLOW_UP_STATUS.NONE;
+      }
+      hasMaterialUpdate = true;
+    }
+
+    if (updates.followUpStatus !== undefined) {
+      materialUpdates.followUpStatus = updates.followUpStatus;
+      hasMaterialUpdate = true;
+      if (updates.followUpStatus === FOLLOW_UP_STATUS.COMPLETED) {
+        materialUpdates.followUpCompletedAt = new Date().toISOString();
+      }
+    }
+
+    if (updates.followUpNote !== undefined) {
+      materialUpdates.followUpNote = updates.followUpNote;
+      hasMaterialUpdate = true;
+    }
+
+    if (updates.followUpOwner !== undefined) {
+      materialUpdates.followUpOwner = updates.followUpOwner;
+      hasMaterialUpdate = true;
+    }
+
+    if (updates.followUpDueTime !== undefined) {
+      materialUpdates.followUpDueTime = updates.followUpDueTime;
       hasMaterialUpdate = true;
     }
 
@@ -443,10 +526,15 @@ export function AppProvider({ children }) {
     }
   }, [state.handoverItems, state.materials]);
 
-  const bulkConfirmHandoverItems = useCallback(async (itemIds, confirmed) => {
+  const bulkConfirmHandoverItems = useCallback(async (itemIds, confirmed, syncFollowUp = false) => {
     const updates = itemIds.map(id => ({ id, confirmed }));
-    await Promise.all(itemIds.map(id => db.handoverItems.update(id, { confirmed })));
-    dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: updates });
+    const itemUpdates = { confirmed };
+    if (confirmed && syncFollowUp) {
+      itemUpdates.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
+      itemUpdates.followUpCompletedAt = new Date().toISOString();
+    }
+    await Promise.all(itemIds.map(id => db.handoverItems.update(id, itemUpdates)));
+    dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: updates.map(u => ({ ...u, ...(confirmed && syncFollowUp ? itemUpdates : {}) })) });
 
     if (confirmed && itemIds.length > 0) {
       const firstItem = state.handoverItems.find(i => i.id === itemIds[0]);
@@ -477,6 +565,11 @@ export function AppProvider({ children }) {
             changed = true;
           }
           mu.preparedQty = item.confirmedPreparedQty;
+          changed = true;
+        }
+        if (syncFollowUp && material.followUpStatus && material.followUpStatus !== FOLLOW_UP_STATUS.COMPLETED) {
+          mu.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
+          mu.followUpCompletedAt = new Date().toISOString();
           changed = true;
         }
       }
@@ -521,6 +614,8 @@ export function AppProvider({ children }) {
     updateMaterial,
     updateMaterialField,
     bulkUpdateStatus,
+    bulkUpdateFollowUp,
+    markFollowUpCompleted,
     addMaterial,
     deleteMaterials,
     moveMaterials,

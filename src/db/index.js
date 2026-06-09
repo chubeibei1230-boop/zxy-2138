@@ -20,6 +20,15 @@ db.version(3).stores({
   handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty',
 });
 
+db.version(4).stores({
+  rooms: '++id, name, capacity',
+  categories: '++id, name, icon',
+  meetings: '++id, title, date, batch, roomId, personInCharge, timeSlot, status',
+  materials: '++id, meetingId, categoryId, name, requiredQty, preparedQty, shortageNote, status, roomId, personInCharge, batch, followUp, handoverRemark, followUpStatus, followUpNote, followUpOwner, followUpDueTime, followUpCompletedAt',
+  handovers: '++id, title, createdAt, handoverTime, handoverPerson, receiverPerson, remark, status, sourceType, materialCount',
+  handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty, followUpStatus, followUpNote, followUpOwner, followUpDueTime',
+});
+
 export function getLocalDatetimeLocal() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -90,6 +99,44 @@ export const HANDOVER_SOURCE_TYPE = {
   FILTERED: 'filtered',
   SELECTED: 'selected',
 };
+
+export const FOLLOW_UP_STATUS = {
+  NONE: 'none',
+  PENDING: 'pending',
+  OVERDUE: 'overdue',
+  COMPLETED: 'completed',
+};
+
+export const FOLLOW_UP_STATUS_LABELS = {
+  none: '无跟进',
+  pending: '待跟进',
+  overdue: '已逾期',
+  completed: '已完成跟进',
+};
+
+export const FOLLOW_UP_STATUS_COLORS = {
+  none: '#94a3b8',
+  pending: '#f59e0b',
+  overdue: '#ef4444',
+  completed: '#10b981',
+};
+
+export function getFollowUpStatus(material) {
+  if (!material || !material.followUpStatus || material.followUpStatus === FOLLOW_UP_STATUS.NONE) {
+    return material.followUp ? FOLLOW_UP_STATUS.PENDING : FOLLOW_UP_STATUS.NONE;
+  }
+  if (material.followUpStatus === FOLLOW_UP_STATUS.COMPLETED) {
+    return FOLLOW_UP_STATUS.COMPLETED;
+  }
+  if (material.followUpStatus === FOLLOW_UP_STATUS.PENDING && material.followUpDueTime) {
+    const now = new Date();
+    const due = new Date(material.followUpDueTime);
+    if (now > due) {
+      return FOLLOW_UP_STATUS.OVERDUE;
+    }
+  }
+  return material.followUpStatus;
+}
 
 export async function seedDatabase() {
   const roomsCount = await db.rooms.count();

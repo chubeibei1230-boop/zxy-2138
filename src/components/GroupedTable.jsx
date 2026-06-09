@@ -1,8 +1,13 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useApp, GROUP_BY } from '../context/AppContext';
-import { STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS, HANDOVER_SOURCE_TYPE } from '../db';
+import {
+  STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS, HANDOVER_SOURCE_TYPE,
+  FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_LABELS, FOLLOW_UP_STATUS_COLORS,
+  getFollowUpStatus,
+} from '../db';
 import AddMaterialModal from './AddMaterialModal';
 import MoveMaterialModal from './MoveMaterialModal';
+import FollowUpModal from './FollowUpModal';
 
 export default function GroupedTable() {
   const {
@@ -11,6 +16,8 @@ export default function GroupedTable() {
     groupedMaterials,
     updateMaterialField,
     bulkUpdateStatus,
+    bulkUpdateFollowUp,
+    markFollowUpCompleted,
     deleteMaterials,
     filteredMaterials,
   } = useApp();
@@ -19,6 +26,8 @@ export default function GroupedTable() {
   const [expandedGroups, setExpandedGroups] = useState(() => new Set(groupedMaterials.map(g => g.key)));
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [followUpTargetMaterial, setFollowUpTargetMaterial] = useState(null);
   const [addDefaults, setAddDefaults] = useState({});
 
   const toggleGroup = useCallback((key) => {
@@ -71,7 +80,9 @@ export default function GroupedTable() {
     const readyCount = items.filter(m => m.status === MATERIAL_STATUS.READY && m.preparedQty >= m.requiredQty).length;
     const shortageCount = items.filter(m => m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE).length;
     const reviewCount = items.filter(m => m.status === MATERIAL_STATUS.REVIEW).length;
-    return { total, totalReq, totalPrep, readyCount, shortageCount, reviewCount };
+    const followUpPendingCount = items.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.PENDING).length;
+    const followUpOverdueCount = items.filter(m => getFollowUpStatus(m) === FOLLOW_UP_STATUS.OVERDUE).length;
+    return { total, totalReq, totalPrep, readyCount, shortageCount, reviewCount, followUpPendingCount, followUpOverdueCount };
   };
 
   const getStatusBadge = (status, shortage) => {
@@ -87,6 +98,32 @@ export default function GroupedTable() {
         }}
       >
         {STATUS_LABELS[finalStatus]}
+      </span>
+    );
+  };
+
+  const getFollowUpBadge = (material) => {
+    const followUpStatus = getFollowUpStatus(material);
+    if (followUpStatus === FOLLOW_UP_STATUS.NONE) return null;
+    const icon = followUpStatus === FOLLOW_UP_STATUS.OVERDUE ? '⏰' : followUpStatus === FOLLOW_UP_STATUS.COMPLETED ? '✅' : '⏩';
+    return (
+      <span
+        className="follow-up-badge"
+        style={{
+          fontSize: '10px',
+          padding: '1px 6px',
+          borderRadius: '8px',
+          background: `${FOLLOW_UP_STATUS_COLORS[followUpStatus]}15`,
+          color: FOLLOW_UP_STATUS_COLORS[followUpStatus],
+          border: `1px solid ${FOLLOW_UP_STATUS_COLORS[followUpStatus]}40`,
+          fontWeight: '500',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '2px',
+        }}
+        title={`${FOLLOW_UP_STATUS_LABELS[followUpStatus]}${material.followUpDueTime ? ` · 预计完成：${material.followUpDueTime.replace('T', ' ')}` : ''}`}
+      >
+        {icon} {FOLLOW_UP_STATUS_LABELS[followUpStatus]}
       </span>
     );
   };
@@ -227,6 +264,11 @@ export default function GroupedTable() {
                   const val = e.target.value;
                   if (!val) return;
                   await bulkUpdateStatus(visibleSelectedIds, val);
+                  if (val === MATERIAL_STATUS.READY) {
+                    if (confirm('物料已标记为已备齐，是否同步将跟进状态更新为已完成？')) {
+                      await markFollowUpCompleted(visibleSelectedIds);
+                    }
+                  }
                   e.target.value = '';
                 }}
                 onClick={(e) => e.stopPropagation()}
@@ -237,6 +279,33 @@ export default function GroupedTable() {
                 <option value="ready">已备齐</option>
                 <option value="shortage">短缺</option>
                 <option value="review">需复核</option>
+              </select>
+              <select
+                className="btn btn-secondary btn-sm"
+                style={{ border: '1px solid #e2e8f0', minWidth: '110px' }}
+                value=""
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  if (val === 'mark_followup') {
+                    setFollowUpTargetMaterial(null);
+                    setShowFollowUpModal(true);
+                  } else if (val === 'complete_followup') {
+                    await markFollowUpCompleted(visibleSelectedIds);
+                  } else if (val === 'cancel_followup') {
+                    await bulkUpdateFollowUp(visibleSelectedIds, {
+                      followUp: false,
+                      followUpStatus: FOLLOW_UP_STATUS.NONE,
+                    });
+                  }
+                  e.target.value = '';
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <option value="">批量跟进操作</option>
+                <option value="mark_followup">⏩ 标记需跟进</option>
+                <option value="complete_followup">✅ 标记跟进完成</option>
+                <option value="cancel_followup">❌ 取消跟进</option>
               </select>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowMoveModal(true)}>📦 移动</button>
               <button className="btn btn-danger btn-sm" onClick={() => handleDelete(visibleSelectedIds)}>🗑️ 删除</button>
@@ -329,20 +398,32 @@ export default function GroupedTable() {
                   <span className="group-count">{group.items.length} 项</span>
                 </div>
                 <div className="group-header-right">
-                  <div className="group-stat">
-                    <span className="group-stat-dot" style={{ background: '#10b981' }} />
-                    {stats.readyCount} 齐
-                  </div>
-                  <div className="group-stat">
-                    <span className="group-stat-dot" style={{ background: '#ef4444' }} />
-                    {stats.shortageCount} 缺
-                  </div>
-                  {stats.reviewCount > 0 && (
                     <div className="group-stat">
-                      <span className="group-stat-dot" style={{ background: '#8b5cf6' }} />
-                      {stats.reviewCount} 复核
+                      <span className="group-stat-dot" style={{ background: '#10b981' }} />
+                      {stats.readyCount} 齐
                     </div>
-                  )}
+                    <div className="group-stat">
+                      <span className="group-stat-dot" style={{ background: '#ef4444' }} />
+                      {stats.shortageCount} 缺
+                    </div>
+                    {stats.reviewCount > 0 && (
+                      <div className="group-stat">
+                        <span className="group-stat-dot" style={{ background: '#8b5cf6' }} />
+                        {stats.reviewCount} 复核
+                      </div>
+                    )}
+                    {stats.followUpPendingCount > 0 && (
+                      <div className="group-stat">
+                        <span className="group-stat-dot" style={{ background: FOLLOW_UP_STATUS_COLORS.pending }} />
+                        {stats.followUpPendingCount} 跟进
+                      </div>
+                    )}
+                    {stats.followUpOverdueCount > 0 && (
+                      <div className="group-stat">
+                        <span className="group-stat-dot" style={{ background: FOLLOW_UP_STATUS_COLORS.overdue }} />
+                        {stats.followUpOverdueCount} 逾期
+                      </div>
+                    )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '90px' }}>
                     <div style={{ flex: 1, height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
                       <div
@@ -409,22 +490,13 @@ export default function GroupedTable() {
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <div className="material-name">{material.name}</div>
-                              {material.followUp && (
-                                <span
-                                  style={{
-                                    fontSize: '10px',
-                                    padding: '1px 6px',
-                                    borderRadius: '8px',
-                                    background: '#fdf2f8',
-                                    color: '#ec4899',
-                                    border: '1px solid #fbcfe8',
-                                    fontWeight: '500',
-                                  }}
-                                >
-                                  ⏩ 跟进中
-                                </span>
-                              )}
+                              {getFollowUpBadge(material)}
                             </div>
+                            {material.followUpNote && (
+                              <div style={{ fontSize: '11px', color: FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(material)] || '#64748b', marginTop: '3px' }}>
+                                📝 {material.followUpNote}
+                              </div>
+                            )}
                             {material.handoverRemark && (
                               <div style={{ fontSize: '11px', color: '#3b82f6', marginTop: '3px' }}>
                                 💬 {material.handoverRemark}
@@ -433,6 +505,9 @@ export default function GroupedTable() {
                             {groupBy !== GROUP_BY.PERSON && (
                               <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                                 👤 {material.personInCharge || '未分配'}
+                                {material.followUpOwner && (
+                                  <span style={{ color: FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(material)] || '#8b5cf6' }}> · 跟进：{material.followUpOwner}</span>
+                                )}
                               </div>
                             )}
                             {groupBy !== GROUP_BY.ROOM && (
@@ -498,6 +573,39 @@ export default function GroupedTable() {
                             <div className="row-actions" style={{ justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
                               <button
                                 className="icon-btn"
+                                title={getFollowUpStatus(material) === FOLLOW_UP_STATUS.NONE ? '标记需跟进' : getFollowUpStatus(material) === FOLLOW_UP_STATUS.COMPLETED ? '重新开启跟进' : '编辑跟进信息'}
+                                onClick={() => {
+                                  setFollowUpTargetMaterial(material);
+                                  setShowFollowUpModal(true);
+                                }}
+                                style={{
+                                  background: getFollowUpStatus(material) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(material) !== FOLLOW_UP_STATUS.COMPLETED
+                                    ? `${FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(material)]}15`
+                                    : 'transparent',
+                                  color: getFollowUpStatus(material) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(material) !== FOLLOW_UP_STATUS.COMPLETED
+                                    ? FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(material)]
+                                    : '#64748b',
+                                }}
+                              >
+                                {getFollowUpStatus(material) === FOLLOW_UP_STATUS.COMPLETED ? '🔄' : '⏩'}
+                              </button>
+                              {getFollowUpStatus(material) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(material) !== FOLLOW_UP_STATUS.COMPLETED && (
+                                <button
+                                  className="icon-btn"
+                                  title="标记跟进完成"
+                                  onClick={async () => {
+                                    await markFollowUpCompleted([material.id]);
+                                  }}
+                                  style={{
+                                    background: `${FOLLOW_UP_STATUS_COLORS.completed}15`,
+                                    color: FOLLOW_UP_STATUS_COLORS.completed,
+                                  }}
+                                >
+                                  ✅
+                                </button>
+                              )}
+                              <button
+                                className="icon-btn"
                                 title="移动物料"
                                 onClick={() => {
                                   dispatch({ type: 'SET_SELECTED_MATERIALS', payload: [material.id] });
@@ -513,6 +621,11 @@ export default function GroupedTable() {
                                   await updateMaterialField(material.id, 'status', MATERIAL_STATUS.READY);
                                   if (material.preparedQty < material.requiredQty) {
                                     await updateMaterialField(material.id, 'preparedQty', material.requiredQty);
+                                  }
+                                  if (getFollowUpStatus(material) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(material) !== FOLLOW_UP_STATUS.COMPLETED) {
+                                    if (confirm('物料已标记为已备齐，是否同步将跟进状态更新为已完成？')) {
+                                      await markFollowUpCompleted([material.id]);
+                                    }
                                   }
                                 }}
                               >
@@ -545,6 +658,16 @@ export default function GroupedTable() {
         <MoveMaterialModal
           materialIds={visibleSelectedIds.length > 0 ? visibleSelectedIds : selectedMaterialIds}
           onClose={() => setShowMoveModal(false)}
+        />
+      )}
+      {showFollowUpModal && (
+        <FollowUpModal
+          material={followUpTargetMaterial}
+          materialIds={followUpTargetMaterial ? [followUpTargetMaterial.id] : visibleSelectedIds}
+          onClose={() => {
+            setShowFollowUpModal(false);
+            setFollowUpTargetMaterial(null);
+          }}
         />
       )}
     </div>

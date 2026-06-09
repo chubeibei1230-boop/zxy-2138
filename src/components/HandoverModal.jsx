@@ -4,7 +4,9 @@ import {
   STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS,
   HANDOVER_STATUS, HANDOVER_STATUS_LABELS, HANDOVER_STATUS_COLORS,
   HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal,
+  FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_LABELS, FOLLOW_UP_STATUS_COLORS, getFollowUpStatus,
 } from '../db';
+import FollowUpModal from './FollowUpModal';
 
 export default function HandoverModal() {
   const {
@@ -18,6 +20,8 @@ export default function HandoverModal() {
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const [editingItemId, setEditingItemId] = useState(null);
   const [localForm, setLocalForm] = useState({});
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [followUpTargetItem, setFollowUpTargetItem] = useState(null);
 
   const isCreating = !currentHandover && showHandoverModal;
 
@@ -181,7 +185,23 @@ export default function HandoverModal() {
   };
 
   const handleFollowUp = async (itemId, followUp) => {
-    await updateHandoverItem(itemId, { followUp });
+    if (followUp) {
+      const item = items.find(i => i.id === itemId);
+      if (item) {
+        setFollowUpTargetItem(item);
+        setShowFollowUpModal(true);
+        return;
+      }
+    }
+    await updateHandoverItem(itemId, {
+      followUp,
+      followUpStatus: followUp ? FOLLOW_UP_STATUS.PENDING : FOLLOW_UP_STATUS.NONE,
+    });
+  };
+
+  const handleOpenFollowUp = (item) => {
+    setFollowUpTargetItem(item);
+    setShowFollowUpModal(true);
   };
 
   const handleRemarkChange = async (itemId, itemRemark) => {
@@ -192,9 +212,9 @@ export default function HandoverModal() {
     await updateHandoverItem(itemId, { confirmedPreparedQty: qty }, true);
   };
 
-  const handleBulkConfirm = async (itemIds, confirmed) => {
+  const handleBulkConfirm = async (itemIds, confirmed, syncFollowUp = false) => {
     if (itemIds.length === 0) return;
-    await bulkConfirmHandoverItems(itemIds, confirmed);
+    await bulkConfirmHandoverItems(itemIds, confirmed, syncFollowUp);
   };
 
   const handleDelete = async () => {
@@ -221,7 +241,8 @@ export default function HandoverModal() {
   };
 
   return (
-    <div className="modal-overlay handover-modal-overlay" onClick={handleClose}>
+    <>
+      <div className="modal-overlay handover-modal-overlay" onClick={handleClose}>
       <div
         className="modal handover-modal"
         onClick={(e) => e.stopPropagation()}
@@ -446,6 +467,24 @@ export default function HandoverModal() {
                     ✅ 一键确认全部
                   </button>
                   <button
+                    className="btn btn-sm"
+                    style={{ background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8' }}
+                    disabled={stats.followUp === 0}
+                    onClick={() => {
+                      const followUpItemIds = items.filter(i => {
+                        const fStatus = getFollowUpStatus(i.material);
+                        return fStatus !== FOLLOW_UP_STATUS.NONE && fStatus !== FOLLOW_UP_STATUS.COMPLETED;
+                      }).map(i => i.id);
+                      if (followUpItemIds.length > 0) {
+                        if (confirm(`确定要将 ${followUpItemIds.length} 条待跟进物料同步标记为跟进完成吗？`)) {
+                          handleBulkConfirm(followUpItemIds, true, true);
+                        }
+                      }
+                    }}
+                  >
+                    ✅ 同步完成跟进 ({stats.followUp})
+                  </button>
+                  <button
                     className="btn btn-sm btn-secondary"
                     disabled={stats.confirmed === 0}
                     onClick={() => handleBulkConfirm(
@@ -641,14 +680,38 @@ export default function HandoverModal() {
             </>
           ) : (
             <>
-              <span style={{ fontSize: '12px', color: '#94a3b8', marginRight: 'auto' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 💡 物料确认后的状态和数量会同步到主列表
+                {stats.followUp > 0 && handover?.status !== HANDOVER_STATUS.COMPLETED && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', padding: '4px 8px', background: FOLLOW_UP_STATUS_COLORS.pending + '15', borderRadius: '4px' }}>
+                    <input
+                      type="checkbox"
+                      id="syncFollowUpOnComplete"
+                    />
+                    <span style={{ color: FOLLOW_UP_STATUS_COLORS.pending, fontSize: '12px' }}>
+                      同步完成跟进 ({stats.followUp})
+                    </span>
+                  </label>
+                )}
               </span>
               <button className="btn btn-secondary" onClick={handleClose}>关闭</button>
               <button
                 className="btn btn-success"
                 disabled={stats.unconfirmed > 0 || handover?.status === HANDOVER_STATUS.COMPLETED}
-                onClick={() => handleStatusChange(HANDOVER_STATUS.COMPLETED)}
+                onClick={() => {
+                  const syncCheckbox = document.getElementById('syncFollowUpOnComplete');
+                  const syncFollowUp = syncCheckbox?.checked || false;
+                  if (syncFollowUp && stats.followUp > 0) {
+                    const followUpItemIds = items.filter(i => {
+                      const fStatus = getFollowUpStatus(i.material);
+                      return fStatus !== FOLLOW_UP_STATUS.NONE && fStatus !== FOLLOW_UP_STATUS.COMPLETED;
+                    }).map(i => i.id);
+                    if (followUpItemIds.length > 0) {
+                      handleBulkConfirm(followUpItemIds, true, true);
+                    }
+                  }
+                  handleStatusChange(HANDOVER_STATUS.COMPLETED);
+                }}
               >
                 🎉 完成交接
               </button>
@@ -657,6 +720,17 @@ export default function HandoverModal() {
         </div>
       </div>
     </div>
+    {showFollowUpModal && followUpTargetItem && (
+      <FollowUpModal
+        material={followUpTargetItem.material}
+        materialIds={[followUpTargetItem.materialId]}
+        onClose={() => {
+          setShowFollowUpModal(false);
+          setFollowUpTargetItem(null);
+        }}
+      />
+    )}
+    </>
   );
 
   function renderItem(item) {
@@ -667,11 +741,12 @@ export default function HandoverModal() {
     const isReview = m.status === MATERIAL_STATUS.REVIEW;
     const isNotReady = m.status !== MATERIAL_STATUS.READY || m.preparedQty < m.requiredQty;
     const highlightClass = isShortage ? 'highlight-shortage' : isReview ? 'highlight-review' : isNotReady ? 'highlight-notready' : '';
+    const itemFollowUpStatus = getFollowUpStatus(m);
 
     return (
       <div
         key={item.id}
-        className={`handover-item ${item.confirmed ? 'confirmed' : ''} ${highlightClass} ${item.followUp ? 'follow-up' : ''}`}
+        className={`handover-item ${item.confirmed ? 'confirmed' : ''} ${highlightClass} ${item.followUp || itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE ? 'follow-up' : ''}`}
       >
         <div className="handover-item-main">
           <label className="handover-checkbox-wrap" style={{ flexShrink: 0 }}>
@@ -691,10 +766,37 @@ export default function HandoverModal() {
                 <span>{cat.name}</span>
               </span>
               <span className="handover-item-name">{m.name}</span>
-              {item.followUp && (
-                <span className="handover-followup-badge">⏩ 跟进中</span>
+              {itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE && (
+                <span
+                  className="handover-followup-badge"
+                  style={{
+                    background: `${FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus]}15`,
+                    color: FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus],
+                    borderColor: `${FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus]}40`,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => handleOpenFollowUp(item)}
+                  title={itemFollowUpStatus === FOLLOW_UP_STATUS.OVERDUE ? '已逾期 - 点击编辑' :
+                    itemFollowUpStatus === FOLLOW_UP_STATUS.COMPLETED ? '已完成跟进 - 点击编辑' : '待跟进 - 点击编辑'}
+                >
+                  {itemFollowUpStatus === FOLLOW_UP_STATUS.OVERDUE ? '⏰' :
+                    itemFollowUpStatus === FOLLOW_UP_STATUS.COMPLETED ? '✅' : '⏩'} {FOLLOW_UP_STATUS_LABELS[itemFollowUpStatus]}
+                </span>
               )}
             </div>
+            {(m.followUpOwner || m.followUpDueTime) && itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE && (
+              <div style={{ fontSize: '11px', color: FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus], marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {m.followUpOwner && <span>👤 跟进人：{m.followUpOwner}</span>}
+                {m.followUpDueTime && (
+                  <span>
+                    {itemFollowUpStatus === FOLLOW_UP_STATUS.COMPLETED && m.followUpCompletedAt
+                      ? `✅ ${new Date(m.followUpCompletedAt).toLocaleString('zh-CN')}完成`
+                      : `⏰ 预计：${m.followUpDueTime.replace('T', ' ')}`
+                    }
+                  </span>
+                )}
+              </div>
+            )}
             <div className="handover-item-meta hide-desktop">
               <span>🏢 {getRoomName(m.roomId)}</span>
               {meeting && <span>📅 {meeting.title}</span>}
@@ -738,21 +840,43 @@ export default function HandoverModal() {
 
           <div className="handover-item-actions" style={{ flexShrink: 0, display: 'flex', gap: '4px' }}>
             <button
-              className={`icon-btn ${item.followUp ? 'active' : ''}`}
-              title={item.followUp ? '取消跟进' : '标记需跟进'}
-              onClick={() => handleFollowUp(item.id, !item.followUp)}
+              className={`icon-btn ${itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE && itemFollowUpStatus !== FOLLOW_UP_STATUS.COMPLETED ? 'active' : ''}`}
+              title={itemFollowUpStatus === FOLLOW_UP_STATUS.NONE ? '标记需跟进' :
+                itemFollowUpStatus === FOLLOW_UP_STATUS.COMPLETED ? '重新开启跟进' : '编辑跟进信息'}
+              onClick={() => handleOpenFollowUp(item)}
               style={{
-                background: item.followUp ? '#fdf2f8' : 'transparent',
-                color: item.followUp ? '#ec4899' : '#64748b',
+                background: itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE && itemFollowUpStatus !== FOLLOW_UP_STATUS.COMPLETED
+                  ? `${FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus]}15`
+                  : 'transparent',
+                color: itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE && itemFollowUpStatus !== FOLLOW_UP_STATUS.COMPLETED
+                  ? FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus]
+                  : '#64748b',
               }}
             >
-              ⏩
+              {itemFollowUpStatus === FOLLOW_UP_STATUS.COMPLETED ? '🔄' : '⏩'}
             </button>
+            {itemFollowUpStatus !== FOLLOW_UP_STATUS.NONE && itemFollowUpStatus !== FOLLOW_UP_STATUS.COMPLETED && (
+              <button
+                className="icon-btn"
+                title="标记跟进完成"
+                onClick={async () => {
+                  await updateHandoverItem(item.id, {
+                    followUpStatus: FOLLOW_UP_STATUS.COMPLETED,
+                  });
+                }}
+                style={{
+                  background: `${FOLLOW_UP_STATUS_COLORS.completed}15`,
+                  color: FOLLOW_UP_STATUS_COLORS.completed,
+                }}
+              >
+                ✅
+              </button>
+            )}
             <button
               className="icon-btn"
               title={editingItemId === item.id ? '收起备注' : '补充备注'}
               onClick={() => setEditingItemId(editingItemId === item.id ? null : item.id)}
-              style={{ color: item.itemRemark ? '#3b82f6' : '#64748b' }}
+              style={{ color: item.itemRemark || m.followUpNote ? '#3b82f6' : '#64748b' }}
             >
               💬
             </button>
@@ -817,12 +941,25 @@ export default function HandoverModal() {
             </div>
           </div>
 
-          {(editingItemId === item.id || item.itemRemark || m.shortageNote) && (
+          {(editingItemId === item.id || item.itemRemark || m.shortageNote || m.followUpNote) && (
             <div className="handover-item-remark-wrap">
               {m.shortageNote && (
                 <div className="handover-item-shortage-note">
                   <span>⚠️</span>
                   <span>{m.shortageNote}</span>
+                </div>
+              )}
+              {m.followUpNote && (
+                <div
+                  className="handover-item-shortage-note"
+                  style={{
+                    background: `${FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus] || '#f59e0b'}10`,
+                    borderColor: `${FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus] || '#f59e0b'}40`,
+                    color: FOLLOW_UP_STATUS_COLORS[itemFollowUpStatus] || '#92400e',
+                  }}
+                >
+                  <span>📝</span>
+                  <span>{m.followUpNote}</span>
                 </div>
               )}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>

@@ -1,10 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS } from '../db';
+import {
+  STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS,
+  FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_LABELS, FOLLOW_UP_STATUS_COLORS,
+  getFollowUpStatus,
+} from '../db';
+import FollowUpModal from './FollowUpModal';
 
 export default function DetailPanel() {
-  const { state, dispatch, updateMaterial, updateMaterialField, deleteMaterials } = useApp();
+  const { state, dispatch, updateMaterial, updateMaterialField, deleteMaterials, markFollowUpCompleted } = useApp();
   const { detailMaterial, mobileDetailExpanded, rooms, categories, meetings } = state;
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
 
   const relatedMaterials = useMemo(() => {
     if (!detailMaterial) return [];
@@ -67,6 +73,11 @@ export default function DetailPanel() {
       updates.preparedQty = detailMaterial.requiredQty;
     }
     await updateMaterial({ ...detailMaterial, ...updates });
+    if (getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.COMPLETED) {
+      if (confirm('物料已标记为已备齐，是否同步将跟进状态更新为已完成？')) {
+        await markFollowUpCompleted([detailMaterial.id]);
+      }
+    }
   };
 
   return (
@@ -84,6 +95,24 @@ export default function DetailPanel() {
           >
             {STATUS_LABELS[detailMaterial.status]}
           </span>
+          {(() => {
+            const fStatus = getFollowUpStatus(detailMaterial);
+            if (fStatus === FOLLOW_UP_STATUS.NONE) return null;
+            const icon = fStatus === FOLLOW_UP_STATUS.OVERDUE ? '⏰' : fStatus === FOLLOW_UP_STATUS.COMPLETED ? '✅' : '⏩';
+            return (
+              <span
+                className="status-badge"
+                style={{
+                  background: `${FOLLOW_UP_STATUS_COLORS[fStatus]}15`,
+                  color: FOLLOW_UP_STATUS_COLORS[fStatus],
+                  border: `1px solid ${FOLLOW_UP_STATUS_COLORS[fStatus]}40`,
+                  marginLeft: '4px',
+                }}
+              >
+                {icon} {FOLLOW_UP_STATUS_LABELS[fStatus]}
+              </span>
+            );
+          })()}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button className="collapse-toggle" onClick={() => dispatch({ type: 'TOGGLE_MOBILE_DETAIL' })}>
@@ -132,6 +161,31 @@ export default function DetailPanel() {
           >
             🔍 标记需复核
           </button>
+          <button
+            className="btn btn-sm"
+            style={{
+              background: getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.COMPLETED
+                ? `${FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(detailMaterial)]}15`
+                : '#f1f5f9',
+              color: getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.COMPLETED
+                ? FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(detailMaterial)]
+                : '#475569',
+              border: `1px solid ${getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.COMPLETED
+                ? FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(detailMaterial)]
+                : '#e2e8f0'}40`,
+            }}
+            onClick={() => setShowFollowUpModal(true)}
+          >
+            {getFollowUpStatus(detailMaterial) === FOLLOW_UP_STATUS.COMPLETED ? '🔄' : '⏩'} 跟进管理
+          </button>
+          {getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.NONE && getFollowUpStatus(detailMaterial) !== FOLLOW_UP_STATUS.COMPLETED && (
+            <button
+              className="btn btn-success btn-sm"
+              onClick={async () => await markFollowUpCompleted([detailMaterial.id])}
+            >
+              ✅ 完成跟进
+            </button>
+          )}
           <button
             className="btn btn-danger btn-sm"
             onClick={handleDelete}
@@ -353,8 +407,98 @@ export default function DetailPanel() {
               </div>
             )}
           </div>
+
+          <div>
+            <div className="detail-section-title">跟进信息</div>
+
+            {getFollowUpStatus(detailMaterial) === FOLLOW_UP_STATUS.NONE && !detailMaterial.followUp ? (
+              <div style={{ fontSize: '13px', color: '#94a3b8', padding: '12px', background: '#f8fafc', borderRadius: '8px', textAlign: 'center' }}>
+                暂无跟进设置
+                <div style={{ marginTop: '8px' }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => setShowFollowUpModal(true)}>
+                    ⏩ 设置跟进
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="detail-field">
+                  <span className="detail-field-label">跟进状态</span>
+                  <select
+                    className="form-input"
+                    value={detailMaterial.followUpStatus || (detailMaterial.followUp ? FOLLOW_UP_STATUS.PENDING : FOLLOW_UP_STATUS.NONE)}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      await updateMaterialField(detailMaterial.id, 'followUpStatus', val);
+                      if (val === FOLLOW_UP_STATUS.NONE) {
+                        await updateMaterialField(detailMaterial.id, 'followUp', false);
+                      } else if (val === FOLLOW_UP_STATUS.PENDING) {
+                        await updateMaterialField(detailMaterial.id, 'followUp', true);
+                      } else if (val === FOLLOW_UP_STATUS.COMPLETED) {
+                        await updateMaterialField(detailMaterial.id, 'followUpCompletedAt', new Date().toISOString());
+                        await updateMaterialField(detailMaterial.id, 'followUp', true);
+                      }
+                    }}
+                    style={{
+                      borderColor: `${FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(detailMaterial)]}40`,
+                      background: `${FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(detailMaterial)]}08`,
+                      color: FOLLOW_UP_STATUS_COLORS[getFollowUpStatus(detailMaterial)],
+                      fontWeight: '500',
+                    }}
+                  >
+                    <option value={FOLLOW_UP_STATUS.NONE} style={{ color: '#1e293b' }}>无跟进</option>
+                    <option value={FOLLOW_UP_STATUS.PENDING} style={{ color: '#1e293b' }}>⏩ 待跟进</option>
+                    <option value={FOLLOW_UP_STATUS.COMPLETED} style={{ color: '#1e293b' }}>✅ 已完成跟进</option>
+                  </select>
+                </div>
+
+                <div className="detail-field">
+                  <span className="detail-field-label">跟进责任人</span>
+                  <input
+                    className="form-input"
+                    placeholder="请输入责任人姓名"
+                    value={detailMaterial.followUpOwner || ''}
+                    onChange={async (e) => await updateMaterialField(detailMaterial.id, 'followUpOwner', e.target.value)}
+                  />
+                </div>
+
+                <div className="detail-field">
+                  <span className="detail-field-label">预计完成时间</span>
+                  <input
+                    type="datetime-local"
+                    className="form-input"
+                    value={detailMaterial.followUpDueTime || ''}
+                    onChange={async (e) => await updateMaterialField(detailMaterial.id, 'followUpDueTime', e.target.value)}
+                  />
+                  {detailMaterial.followUpCompletedAt && (
+                    <span style={{ fontSize: '11px', color: FOLLOW_UP_STATUS_COLORS.completed }}>
+                      ✅ 实际完成于 {new Date(detailMaterial.followUpCompletedAt).toLocaleString('zh-CN')}
+                    </span>
+                  )}
+                </div>
+
+                <div className="detail-field">
+                  <span className="detail-field-label">跟进说明</span>
+                  <textarea
+                    className="form-input"
+                    rows="3"
+                    placeholder="填写需要跟进的具体事项、处理方式、当前进展等..."
+                    value={detailMaterial.followUpNote || ''}
+                    onChange={async (e) => await updateMaterialField(detailMaterial.id, 'followUpNote', e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
+      {showFollowUpModal && (
+        <FollowUpModal
+          material={detailMaterial}
+          materialIds={[detailMaterial.id]}
+          onClose={() => setShowFollowUpModal(false)}
+        />
+      )}
     </div>
   );
 }

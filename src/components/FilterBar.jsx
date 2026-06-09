@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { STATUS_LABELS, STATUS_COLORS } from '../db';
+import { STATUS_LABELS, STATUS_COLORS, FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_LABELS, FOLLOW_UP_STATUS_COLORS } from '../db';
 
 export default function FilterBar() {
   const { state, dispatch } = useApp();
@@ -16,6 +16,12 @@ export default function FilterBar() {
     label,
     color: STATUS_COLORS[value],
   }));
+
+  const followUpOptions = [
+    { value: FOLLOW_UP_STATUS.PENDING, label: '仅看待跟进', color: FOLLOW_UP_STATUS_COLORS.pending, icon: '⏩' },
+    { value: FOLLOW_UP_STATUS.OVERDUE, label: '仅看已逾期', color: FOLLOW_UP_STATUS_COLORS.overdue, icon: '⏰' },
+    { value: FOLLOW_UP_STATUS.COMPLETED, label: '仅看已完成跟进', color: FOLLOW_UP_STATUS_COLORS.completed, icon: '✅' },
+  ];
 
   const handleDateChange = (field, value) => {
     dispatch({
@@ -39,6 +45,7 @@ export default function FilterBar() {
         personInCharges: [],
         statuses: [],
         shortageOnly: false,
+        followUpStatuses: [],
       },
     });
   };
@@ -49,7 +56,8 @@ export default function FilterBar() {
     filters.roomIds.length > 0 ||
     filters.personInCharges.length > 0 ||
     filters.statuses.length > 0 ||
-    filters.shortageOnly;
+    filters.shortageOnly ||
+    filters.followUpStatuses.length > 0;
 
   return (
     <div className="filter-bar">
@@ -139,6 +147,40 @@ export default function FilterBar() {
                     style={{ margin: 0 }}
                   />
                   <span style={{ color: checked ? opt.color : '#475569' }}>{opt.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        <div className="filter-item">
+          <span className="filter-label">跟进状态</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '4px 0' }}>
+            {followUpOptions.map(opt => {
+              const checked = filters.followUpStatuses.includes(opt.value);
+              return (
+                <label
+                  key={opt.value}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    background: checked ? `${opt.color}20` : '#f8fafc',
+                    border: `1px solid ${checked ? opt.color : '#e2e8f0'}`,
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: checked ? '500' : '400',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => handleMultiChange('followUpStatuses', opt.value, e.target.checked)}
+                    className="checkbox"
+                    style={{ margin: 0, accentColor: opt.color }}
+                  />
+                  <span style={{ color: checked ? opt.color : '#475569' }}>{opt.icon} {opt.label}</span>
                 </label>
               );
             })}
