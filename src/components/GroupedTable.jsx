@@ -100,16 +100,23 @@ export default function GroupedTable() {
   const openAddInGroup = (group) => {
     const defaults = {};
     const firstItem = group.items[0];
-    if (firstItem) {
-      if (groupBy === GROUP_BY.ROOM) {
-        defaults.roomId = firstItem.roomId;
-      } else if (groupBy === GROUP_BY.BATCH) {
-        defaults.batch = firstItem.batch;
-      } else if (groupBy === GROUP_BY.PERSON) {
-        defaults.personInCharge = firstItem.personInCharge;
+    if (groupBy === GROUP_BY.ROOM) {
+      defaults.roomId = group.key;
+      if (firstItem) {
+        defaults.meetingId = firstItem.meetingId;
       }
-      defaults.meetingId = firstItem.meetingId;
-      defaults.categoryId = firstItem.categoryId;
+    } else if (groupBy === GROUP_BY.BATCH) {
+      defaults.batch = group.key;
+      if (firstItem) {
+        const matchedMeeting = meetings.find(m => m.batch === group.key);
+        if (matchedMeeting) defaults.meetingId = matchedMeeting.id;
+      }
+    } else if (groupBy === GROUP_BY.PERSON) {
+      defaults.personInCharge = group.key;
+      if (firstItem) {
+        const matchedMeeting = meetings.find(m => m.personInCharge === group.key);
+        if (matchedMeeting) defaults.meetingId = matchedMeeting.id;
+      }
     }
     setAddDefaults(defaults);
     setShowAddModal(true);

@@ -68,9 +68,14 @@ function appReducer(state, action) {
       return { ...state, mobileDetailExpanded: !state.mobileDetailExpanded };
     case 'UPDATE_MATERIALS': {
       const updatedMap = new Map(action.payload.map(m => [m.id, m]));
+      let nextDetailMaterial = state.detailMaterial;
+      if (state.detailMaterial && updatedMap.has(state.detailMaterial.id)) {
+        nextDetailMaterial = { ...state.detailMaterial, ...updatedMap.get(state.detailMaterial.id) };
+      }
       return {
         ...state,
         materials: state.materials.map(m => updatedMap.has(m.id) ? { ...m, ...updatedMap.get(m.id) } : m),
+        detailMaterial: nextDetailMaterial,
       };
     }
     case 'ADD_MATERIALS':
@@ -84,18 +89,25 @@ function appReducer(state, action) {
       };
     case 'MOVE_MATERIALS': {
       const { ids, targetRoomId, targetMeetingId, targetBatch, targetPerson } = action.payload;
+      let nextDetailMaterial = state.detailMaterial;
+      const newMaterials = state.materials.map(m => {
+        if (!ids.includes(m.id)) return m;
+        const updated = {
+          ...m,
+          roomId: targetRoomId ?? m.roomId,
+          meetingId: targetMeetingId ?? m.meetingId,
+          batch: targetBatch ?? m.batch,
+          personInCharge: targetPerson ?? m.personInCharge,
+        };
+        if (state.detailMaterial && state.detailMaterial.id === m.id) {
+          nextDetailMaterial = updated;
+        }
+        return updated;
+      });
       return {
         ...state,
-        materials: state.materials.map(m => {
-          if (!ids.includes(m.id)) return m;
-          return {
-            ...m,
-            roomId: targetRoomId ?? m.roomId,
-            meetingId: targetMeetingId ?? m.meetingId,
-            batch: targetBatch ?? m.batch,
-            personInCharge: targetPerson ?? m.personInCharge,
-          };
-        }),
+        materials: newMaterials,
+        detailMaterial: nextDetailMaterial,
       };
     }
     default:
@@ -164,7 +176,8 @@ export function AppProvider({ children }) {
     const all = state.materials;
     const totalRequired = all.reduce((s, m) => s + m.requiredQty, 0);
     const totalPrepared = all.reduce((s, m) => s + Math.min(m.preparedQty, m.requiredQty), 0);
-    const shortageCount = all.filter(m => m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE).length;
+    const shortageQty = all.reduce((s, m) => s + Math.max(0, m.requiredQty - m.preparedQty), 0);
+    const shortageItems = all.filter(m => m.preparedQty < m.requiredQty || m.status === MATERIAL_STATUS.SHORTAGE).length;
     const readyCount = all.filter(m => m.status === MATERIAL_STATUS.READY && m.preparedQty >= m.requiredQty).length;
 
     const roomStats = {};
@@ -172,15 +185,17 @@ export function AppProvider({ children }) {
       const roomMaterials = all.filter(m => m.roomId === room.id);
       const roomTotal = roomMaterials.length;
       const roomReady = roomMaterials.filter(m => m.status === MATERIAL_STATUS.READY && m.preparedQty >= m.requiredQty).length;
+      const roomShortage = roomMaterials.reduce((s, m) => s + Math.max(0, m.requiredQty - m.preparedQty), 0);
       roomStats[room.id] = {
         roomName: room.name,
         total: roomTotal,
         ready: roomReady,
+        shortageQty: roomShortage,
         rate: roomTotal > 0 ? Math.round((roomReady / roomTotal) * 100) : 0,
       };
     });
 
-    return { totalRequired, totalPrepared, shortageCount, readyCount, totalItems: all.length, roomStats };
+    return { totalRequired, totalPrepared, shortageQty, shortageItems, readyCount, totalItems: all.length, roomStats };
   }, [state.materials, state.rooms]);
 
   const groupedMaterials = useMemo(() => {

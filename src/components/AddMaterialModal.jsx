@@ -6,17 +6,44 @@ export default function AddMaterialModal({ onClose, defaults = {} }) {
   const { state, addMaterial } = useApp();
   const { rooms, categories, meetings } = state;
 
-  const [form, setForm] = useState({
-    meetingId: defaults.meetingId || (meetings[0]?.id ?? ''),
-    categoryId: defaults.categoryId || (categories[0]?.id ?? ''),
-    name: defaults.name || '',
-    requiredQty: defaults.requiredQty || 1,
-    preparedQty: defaults.preparedQty || 0,
-    shortageNote: defaults.shortageNote || '',
-    status: defaults.status || MATERIAL_STATUS.PENDING,
-    roomId: defaults.roomId || (rooms[0]?.id ?? ''),
-    personInCharge: defaults.personInCharge || '',
-    batch: defaults.batch || '',
+  const initialMeetingId = defaults.meetingId || (meetings[0]?.id ?? '');
+  const meetingByDefault = meetings.find(m => m.id === Number(initialMeetingId));
+
+  const [form, setForm] = useState(() => {
+    const base = {
+      meetingId: initialMeetingId,
+      categoryId: defaults.categoryId || (categories[0]?.id ?? ''),
+      name: defaults.name || '',
+      requiredQty: defaults.requiredQty || 1,
+      preparedQty: defaults.preparedQty || 0,
+      shortageNote: defaults.shortageNote || '',
+      status: defaults.status || MATERIAL_STATUS.PENDING,
+      roomId: undefined,
+      personInCharge: undefined,
+      batch: undefined,
+    };
+
+    if (meetingByDefault) {
+      base.roomId = meetingByDefault.roomId;
+      base.personInCharge = meetingByDefault.personInCharge;
+      base.batch = meetingByDefault.batch;
+    }
+
+    if (defaults.roomId !== undefined && defaults.roomId !== null && defaults.roomId !== '') {
+      base.roomId = defaults.roomId;
+    }
+    if (defaults.personInCharge !== undefined && defaults.personInCharge !== '') {
+      base.personInCharge = defaults.personInCharge;
+    }
+    if (defaults.batch !== undefined && defaults.batch !== '') {
+      base.batch = defaults.batch;
+    }
+
+    if (base.roomId === undefined) base.roomId = rooms[0]?.id ?? '';
+    if (base.personInCharge === undefined) base.personInCharge = '';
+    if (base.batch === undefined) base.batch = '';
+
+    return base;
   });
 
   const handleChange = (field, value) => {

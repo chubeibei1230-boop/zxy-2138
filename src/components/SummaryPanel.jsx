@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 
 export default function SummaryPanel() {
   const { summary, state } = useApp();
-  const { totalRequired, totalPrepared, shortageCount, readyCount, totalItems, roomStats } = summary;
+  const { totalRequired, totalPrepared, shortageQty, shortageItems, readyCount, totalItems, roomStats } = summary;
 
   const completionRate = totalRequired > 0 ? Math.round((totalPrepared / totalRequired) * 100) : 0;
   const notReadyCount = totalItems - readyCount;
@@ -21,10 +21,10 @@ export default function SummaryPanel() {
           <div className="summary-card-value">{totalPrepared.toLocaleString()}</div>
           <div className="summary-card-sub">完成率 {completionRate}%</div>
         </div>
-        <div className={`summary-card ${shortageCount > 0 ? 'danger' : 'warning'}`}>
-          <div className="summary-card-label">短缺/待备条目</div>
-          <div className="summary-card-value">{notReadyCount}</div>
-          <div className="summary-card-sub">其中明确短缺 {shortageCount} 项</div>
+        <div className={`summary-card ${shortageQty > 0 ? 'danger' : 'warning'}`}>
+          <div className="summary-card-label">短缺数量</div>
+          <div className="summary-card-value">{shortageQty.toLocaleString()}</div>
+          <div className="summary-card-sub">涉及 {shortageItems} 项条目，另有 {notReadyCount - shortageItems} 项待准备</div>
         </div>
         <div className="summary-card warning">
           <div className="summary-card-label">已备齐条目</div>
@@ -42,7 +42,7 @@ export default function SummaryPanel() {
           </div>
           <div className="room-progress">
             {state.rooms.map(room => {
-              const stat = roomStats[room.id] || { roomName: room.name, total: 0, ready: 0, rate: 0 };
+              const stat = roomStats[room.id] || { roomName: room.name, total: 0, ready: 0, rate: 0, shortageQty: 0 };
               const progressClass =
                 stat.rate >= 80 ? 'success' : stat.rate >= 50 ? 'warning' : 'danger';
               return (
@@ -59,6 +59,11 @@ export default function SummaryPanel() {
                       style={{ width: `${stat.rate}%` }}
                     />
                   </div>
+                  {stat.shortageQty > 0 && (
+                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '4px' }}>
+                      ⚠️ 缺口 {stat.shortageQty} 件
+                    </div>
+                  )}
                 </div>
               );
             })}
