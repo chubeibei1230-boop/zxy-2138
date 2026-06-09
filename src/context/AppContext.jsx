@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE } from '../db';
 
 const AppContext = createContext(null);
 
@@ -14,6 +14,8 @@ const initialState = {
   categories: [],
   meetings: [],
   materials: [],
+  handovers: [],
+  handoverItems: [],
   loading: true,
   filters: {
     dateRange: { start: '', end: '' },
@@ -27,6 +29,9 @@ const initialState = {
   selectedMaterialIds: [],
   detailMaterial: null,
   mobileDetailExpanded: true,
+  showHandoverModal: false,
+  currentHandoverId: null,
+  handoverSourceType: HANDOVER_SOURCE_TYPE.FILTERED,
 };
 
 function appReducer(state, action) {
@@ -110,6 +115,53 @@ function appReducer(state, action) {
         detailMaterial: nextDetailMaterial,
       };
     }
+    case 'SET_HANDOVER_DATA':
+      return {
+        ...state,
+        handovers: action.payload.handovers,
+        handoverItems: action.payload.handoverItems,
+      };
+    case 'OPEN_HANDOVER_MODAL':
+      return {
+        ...state,
+        showHandoverModal: true,
+        currentHandoverId: action.payload?.handoverId ?? null,
+        handoverSourceType: action.payload?.sourceType ?? HANDOVER_SOURCE_TYPE.FILTERED,
+      };
+    case 'CLOSE_HANDOVER_MODAL':
+      return {
+        ...state,
+        showHandoverModal: false,
+        currentHandoverId: null,
+      };
+    case 'ADD_HANDOVER':
+      return {
+        ...state,
+        handovers: [...state.handovers, action.payload.handover],
+        handoverItems: [...state.handoverItems, ...action.payload.items],
+        currentHandoverId: action.payload.handover.id,
+      };
+    case 'UPDATE_HANDOVER': {
+      const updatedMap = new Map([[action.payload.id, action.payload]]);
+      return {
+        ...state,
+        handovers: state.handovers.map(h => updatedMap.has(h.id) ? { ...h, ...updatedMap.get(h.id) } : h),
+      };
+    }
+    case 'UPDATE_HANDOVER_ITEMS': {
+      const updatedMap = new Map(action.payload.map(i => [i.id, i]));
+      return {
+        ...state,
+        handoverItems: state.handoverItems.map(i => updatedMap.has(i.id) ? { ...i, ...updatedMap.get(i.id) } : i),
+      };
+    }
+    case 'DELETE_HANDOVER':
+      return {
+        ...state,
+        handovers: state.handovers.filter(h => h.id !== action.payload),
+        handoverItems: state.handoverItems.filter(i => i.handoverId !== action.payload),
+        currentHandoverId: state.currentHandoverId === action.payload ? null : state.currentHandoverId,
+      };
     default:
       return state;
   }
@@ -121,13 +173,16 @@ export function AppProvider({ children }) {
   useEffect(() => {
     async function init() {
       await seedDatabase();
-      const [rooms, categories, meetings, materials] = await Promise.all([
+      const [rooms, categories, meetings, materials, handovers, handoverItems] = await Promise.all([
         db.rooms.toArray(),
         db.categories.toArray(),
         db.meetings.toArray(),
         db.materials.toArray(),
+        db.handovers.toArray(),
+        db.handoverItems.toArray(),
       ]);
       dispatch({ type: 'SET_DATA', payload: { rooms, categories, meetings, materials } });
+      dispatch({ type: 'SET_HANDOVER_DATA', payload: { handovers, handoverItems } });
     }
     init();
   }, []);
@@ -276,6 +331,118 @@ export function AppProvider({ children }) {
     dispatch({ type: 'MOVE_MATERIALS', payload: { ids, ...target } });
   }, []);
 
+  const createHandover = useCallback(async ({ sourceType, title, handoverTime, handoverPerson, receiverPerson, remark, materialIds }) => {
+    const ids = materialIds || (sourceType === HANDOVER_SOURCE_TYPE.SELECTED
+      ? state.selectedMaterialIds
+      : filteredMaterials.map(m => m.id));
+
+    if (ids.length === 0) return null;
+
+    const sourceMaterials = state.materials.filter(m => ids.includes(m.id));
+
+    const handover = {
+      title: title || `会前交接清单 - ${new Date().toLocaleDateString('zh-CN')}`,
+      createdAt: new Date().toISOString(),
+      handoverTime: handoverTime || new Date().toISOString().slice(0, 16),
+      handoverPerson: handoverPerson || '',
+      receiverPerson: receiverPerson || '',
+      remark: remark || '',
+      status: HANDOVER_STATUS.DRAFT,
+      sourceType,
+      materialCount: sourceMaterials.length,
+    };
+
+    const handoverId = await db.handovers.add(handover);
+
+    const items = sourceMaterials.map(m => ({
+      handoverId,
+      materialId: m.id,
+      confirmed: false,
+      followUp: false,
+      itemRemark: '',
+      originalStatus: m.status,
+      originalPreparedQty: m.preparedQty,
+      confirmedPreparedQty: m.preparedQty,
+    }));
+
+    const itemIds = await db.handoverItems.bulkAdd(items, { allKeys: true });
+    const itemsWithIds = items.map((item, idx) => ({ ...item, id: itemIds[idx] }));
+
+    dispatch({
+      type: 'ADD_HANDOVER',
+      payload: { handover: { ...handover, id: handoverId }, items: itemsWithIds },
+    });
+
+    return handoverId;
+  }, [state.materials, state.selectedMaterialIds, filteredMaterials]);
+
+  const updateHandover = useCallback(async (handoverId, updates) => {
+    await db.handovers.update(handoverId, updates);
+    dispatch({ type: 'UPDATE_HANDOVER', payload: { id: handoverId, ...updates } });
+  }, []);
+
+  const updateHandoverItem = useCallback(async (itemId, updates, syncMaterial = false) => {
+    await db.handoverItems.update(itemId, updates);
+    dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: itemId, ...updates }] });
+
+    if (syncMaterial && updates.confirmedPreparedQty !== undefined) {
+      const item = state.handoverItems.find(i => i.id === itemId);
+      if (item) {
+        const materialUpdates = { preparedQty: updates.confirmedPreparedQty };
+        if (updates.confirmedPreparedQty >= state.materials.find(m => m.id === item.materialId)?.requiredQty) {
+          materialUpdates.status = MATERIAL_STATUS.READY;
+        }
+        await updateMaterialField(item.materialId, 'preparedQty', materialUpdates.preparedQty);
+        if (materialUpdates.status) {
+          await updateMaterialField(item.materialId, 'status', materialUpdates.status);
+        }
+      }
+    }
+  }, [state.handoverItems, state.materials, updateMaterialField]);
+
+  const bulkConfirmHandoverItems = useCallback(async (itemIds, confirmed) => {
+    const updates = itemIds.map(id => ({ id, confirmed }));
+    await Promise.all(itemIds.map(id => db.handoverItems.update(id, { confirmed })));
+    dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: updates });
+
+    if (confirmed) {
+      const items = state.handoverItems.filter(i => itemIds.includes(i.id));
+      const materialUpdates = items.map(item => {
+        const material = state.materials.find(m => m.id === item.materialId);
+        if (material && item.confirmedPreparedQty >= material.requiredQty) {
+          return { id: item.materialId, status: MATERIAL_STATUS.READY };
+        }
+        return null;
+      }).filter(Boolean);
+      if (materialUpdates.length > 0) {
+        await Promise.all(materialUpdates.map(u => db.materials.update(u.id, { status: u.status })));
+        dispatch({ type: 'UPDATE_MATERIALS', payload: materialUpdates });
+      }
+    }
+  }, [state.handoverItems, state.materials]);
+
+  const deleteHandover = useCallback(async (handoverId) => {
+    await db.handovers.delete(handoverId);
+    await db.handoverItems.where('handoverId').equals(handoverId).delete();
+    dispatch({ type: 'DELETE_HANDOVER', payload: handoverId });
+  }, []);
+
+  const getHandoverWithItems = useCallback((handoverId) => {
+    const handover = state.handovers.find(h => h.id === handoverId);
+    if (!handover) return null;
+    const items = state.handoverItems.filter(i => i.handoverId === handoverId);
+    const materialsWithItems = items.map(item => {
+      const material = state.materials.find(m => m.id === item.materialId);
+      return { ...item, material };
+    }).filter(x => x.material);
+    return { handover, items: materialsWithItems };
+  }, [state.handovers, state.handoverItems, state.materials]);
+
+  const currentHandover = useMemo(() => {
+    if (!state.currentHandoverId) return null;
+    return getHandoverWithItems(state.currentHandoverId);
+  }, [state.currentHandoverId, getHandoverWithItems]);
+
   const value = {
     state,
     dispatch,
@@ -288,6 +455,13 @@ export function AppProvider({ children }) {
     addMaterial,
     deleteMaterials,
     moveMaterials,
+    createHandover,
+    updateHandover,
+    updateHandoverItem,
+    bulkConfirmHandoverItems,
+    deleteHandover,
+    getHandoverWithItems,
+    currentHandover,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

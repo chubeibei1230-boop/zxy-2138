@@ -4,6 +4,8 @@ import FilterBar from './components/FilterBar';
 import SummaryPanel from './components/SummaryPanel';
 import GroupedTable from './components/GroupedTable';
 import DetailPanel from './components/DetailPanel';
+import HandoverEntry from './components/HandoverEntry';
+import HandoverModal from './components/HandoverModal';
 
 function AppContent() {
   const { state, dispatch } = useApp();
@@ -39,9 +41,13 @@ function AppContent() {
 
       <SummaryPanel />
 
+      <HandoverEntry />
+
       <GroupedTable />
 
       <DetailPanel />
+
+      <HandoverModal />
     </div>
   );
 }

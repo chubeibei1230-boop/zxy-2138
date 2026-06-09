@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useApp, GROUP_BY } from '../context/AppContext';
-import { STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS } from '../db';
+import { STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS, HANDOVER_SOURCE_TYPE } from '../db';
 import AddMaterialModal from './AddMaterialModal';
 import MoveMaterialModal from './MoveMaterialModal';
 
@@ -171,6 +171,21 @@ export default function GroupedTable() {
             </div>
           </div>
           <div className="table-toolbar">
+            {visibleSelectedIds.length > 0 && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { sourceType: HANDOVER_SOURCE_TYPE.SELECTED } })}
+              >
+                📋 从已选生成清单
+              </button>
+            )}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { sourceType: HANDOVER_SOURCE_TYPE.FILTERED } })}
+              title="从当前筛选结果生成交接清单"
+            >
+              📄 交接清单
+            </button>
             <button className="btn btn-primary btn-sm" onClick={() => { setAddDefaults({}); setShowAddModal(true); }}>➕ 新增物料</button>
           </div>
         </div>
@@ -198,6 +213,12 @@ export default function GroupedTable() {
           {visibleSelectedIds.length > 0 && (
             <>
               <span className="selected-count">已选 {visibleSelectedIds.length} 条</span>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { sourceType: HANDOVER_SOURCE_TYPE.SELECTED } })}
+              >
+                📋 从已选生成清单
+              </button>
               <select
                 className="btn btn-secondary btn-sm"
                 style={{ border: '1px solid #e2e8f0', minWidth: '110px' }}
@@ -221,6 +242,13 @@ export default function GroupedTable() {
               <button className="btn btn-danger btn-sm" onClick={() => handleDelete(visibleSelectedIds)}>🗑️ 删除</button>
             </>
           )}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { sourceType: HANDOVER_SOURCE_TYPE.FILTERED } })}
+            title="从当前筛选结果生成交接清单"
+          >
+            📄 交接清单
+          </button>
           <button className="btn btn-primary btn-sm" onClick={() => { setAddDefaults({}); setShowAddModal(true); }}>➕ 新增物料</button>
         </div>
       </div>

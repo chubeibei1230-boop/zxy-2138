@@ -2,11 +2,13 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('MeetingMaterialDB');
 
-db.version(1).stores({
+db.version(2).stores({
   rooms: '++id, name, capacity',
   categories: '++id, name, icon',
   meetings: '++id, title, date, batch, roomId, personInCharge, timeSlot, status',
   materials: '++id, meetingId, categoryId, name, requiredQty, preparedQty, shortageNote, status, roomId, personInCharge, batch',
+  handovers: '++id, title, createdAt, handoverTime, handoverPerson, receiverPerson, remark, status, sourceType, materialCount',
+  handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty',
 });
 
 export const DEFAULT_CATEGORIES = [
@@ -46,6 +48,32 @@ export const STATUS_COLORS = {
   ready: '#10b981',
   shortage: '#ef4444',
   review: '#8b5cf6',
+};
+
+export const HANDOVER_STATUS = {
+  DRAFT: 'draft',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  ARCHIVED: 'archived',
+};
+
+export const HANDOVER_STATUS_LABELS = {
+  draft: '草稿',
+  in_progress: '交接中',
+  completed: '已完成',
+  archived: '已归档',
+};
+
+export const HANDOVER_STATUS_COLORS = {
+  draft: '#94a3b8',
+  in_progress: '#f59e0b',
+  completed: '#10b981',
+  archived: '#64748b',
+};
+
+export const HANDOVER_SOURCE_TYPE = {
+  FILTERED: 'filtered',
+  SELECTED: 'selected',
 };
 
 export async function seedDatabase() {
