@@ -1,0 +1,178 @@
+import Dexie from 'dexie';
+
+export const db = new Dexie('MeetingMaterialDB');
+
+db.version(1).stores({
+  rooms: '++id, name, capacity',
+  categories: '++id, name, icon',
+  meetings: '++id, title, date, batch, roomId, personInCharge, timeSlot, status',
+  materials: '++id, meetingId, categoryId, name, requiredQty, preparedQty, shortageNote, status, roomId, personInCharge, batch',
+});
+
+export const DEFAULT_CATEGORIES = [
+  { name: '签到物料', icon: '📋' },
+  { name: '指引贴', icon: '📍' },
+  { name: '桌签', icon: '🏷️' },
+  { name: '饮用水', icon: '💧' },
+  { name: '备用用品', icon: '📦' },
+];
+
+export const DEFAULT_ROOMS = [
+  { name: 'A101 大会议室', capacity: 50 },
+  { name: 'A203 中会议室', capacity: 20 },
+  { name: 'B305 小会议室', capacity: 10 },
+  { name: 'C401 多功能厅', capacity: 100 },
+];
+
+export const MATERIAL_STATUS = {
+  PENDING: 'pending',
+  PREPARING: 'preparing',
+  READY: 'ready',
+  SHORTAGE: 'shortage',
+  REVIEW: 'review',
+};
+
+export const STATUS_LABELS = {
+  pending: '待准备',
+  preparing: '准备中',
+  ready: '已备齐',
+  shortage: '短缺',
+  review: '需复核',
+};
+
+export const STATUS_COLORS = {
+  pending: '#94a3b8',
+  preparing: '#f59e0b',
+  ready: '#10b981',
+  shortage: '#ef4444',
+  review: '#8b5cf6',
+};
+
+export async function seedDatabase() {
+  const roomsCount = await db.rooms.count();
+  if (roomsCount === 0) {
+    const roomIds = await db.rooms.bulkAdd(DEFAULT_ROOMS, { allKeys: true });
+
+    const categoryIds = await db.categories.bulkAdd(DEFAULT_CATEGORIES, { allKeys: true });
+
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const dayAfter = new Date(today);
+    dayAfter.setDate(today.getDate() + 2);
+
+    const formatDate = (d) => d.toISOString().split('T')[0];
+
+    const meetings = [
+      {
+        title: '季度业务复盘会',
+        date: formatDate(today),
+        batch: '2026-Q2-第一批',
+        roomId: roomIds[0],
+        personInCharge: '张伟',
+        timeSlot: '09:00-12:00',
+        status: 'confirmed',
+      },
+      {
+        title: '产品评审会',
+        date: formatDate(today),
+        batch: '2026-Q2-第一批',
+        roomId: roomIds[1],
+        personInCharge: '李娜',
+        timeSlot: '14:00-17:00',
+        status: 'confirmed',
+      },
+      {
+        title: '客户签约仪式',
+        date: formatDate(tomorrow),
+        batch: '2026-Q2-第二批',
+        roomId: roomIds[3],
+        personInCharge: '王芳',
+        timeSlot: '10:00-11:30',
+        status: 'confirmed',
+      },
+      {
+        title: '技术分享会',
+        date: formatDate(tomorrow),
+        batch: '2026-Q2-第二批',
+        roomId: roomIds[2],
+        personInCharge: '赵强',
+        timeSlot: '15:00-17:00',
+        status: 'tentative',
+      },
+      {
+        title: '新员工入职培训',
+        date: formatDate(dayAfter),
+        batch: '2026-Q2-第三批',
+        roomId: roomIds[3],
+        personInCharge: '刘敏',
+        timeSlot: '09:00-17:00',
+        status: 'confirmed',
+      },
+    ];
+
+    const meetingIds = await db.meetings.bulkAdd(meetings, { allKeys: true });
+
+    const materials = [];
+    const categoryConfig = {
+      [DEFAULT_CATEGORIES[0].name]: [
+        { name: '签到表', baseQty: 5 },
+        { name: '签字笔', baseQty: 10 },
+        { name: '参会证', baseQty: 30 },
+      ],
+      [DEFAULT_CATEGORIES[1].name]: [
+        { name: '入口指引', baseQty: 2 },
+        { name: '楼层指引', baseQty: 3 },
+        { name: '卫生间指引', baseQty: 2 },
+      ],
+      [DEFAULT_CATEGORIES[2].name]: [
+        { name: '主桌桌签', baseQty: 5 },
+        { name: '嘉宾桌签', baseQty: 10 },
+      ],
+      [DEFAULT_CATEGORIES[3].name]: [
+        { name: '瓶装矿泉水', baseQty: 50 },
+        { name: '纸杯', baseQty: 30 },
+      ],
+      [DEFAULT_CATEGORIES[4].name]: [
+        { name: '订书机', baseQty: 2 },
+        { name: '便签纸', baseQty: 5 },
+        { name: '充电宝', baseQty: 3 },
+      ],
+    };
+
+    meetings.forEach((meeting, idx) => {
+      const meetingId = meetingIds[idx];
+      const capacity = DEFAULT_ROOMS.find(r => r.name === DEFAULT_ROOMS[roomIds.indexOf(meeting.roomId)]?.name)?.capacity || 20;
+      const factor = Math.max(1, Math.floor(capacity / 20));
+
+      DEFAULT_CATEGORIES.forEach((cat, catIdx) => {
+        const categoryId = categoryIds[catIdx];
+        const configs = categoryConfig[cat.name] || [];
+
+        configs.forEach(config => {
+          const requiredQty = config.baseQty * factor;
+          const preparedQty = Math.random() > 0.4 ? requiredQty : Math.floor(requiredQty * Math.random() * 0.7);
+          const isShortage = preparedQty < requiredQty;
+          const status = isShortage
+            ? (Math.random() > 0.5 ? MATERIAL_STATUS.SHORTAGE : MATERIAL_STATUS.PREPARING)
+            : (Math.random() > 0.3 ? MATERIAL_STATUS.READY : (Math.random() > 0.5 ? MATERIAL_STATUS.REVIEW : MATERIAL_STATUS.PENDING));
+
+          materials.push({
+            meetingId,
+            categoryId,
+            name: config.name,
+            requiredQty,
+            preparedQty,
+            shortageNote: isShortage ? `缺口${requiredQty - preparedQty}件，需向仓库申请补充` : '',
+            status,
+            roomId: meeting.roomId,
+            personInCharge: meeting.personInCharge,
+            batch: meeting.batch,
+          });
+        });
+      });
+    });
+
+    await db.materials.bulkAdd(materials);
+  }
+}
