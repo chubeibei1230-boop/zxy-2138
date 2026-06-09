@@ -28,16 +28,8 @@ export default function HandoverEntry() {
         : '当前筛选结果为空');
       return;
     }
-    setCreating(true);
-    try {
-      const handoverId = await createHandover({ sourceType });
-      if (handoverId) {
-        dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { handoverId, sourceType } });
-        setShowList(false);
-      }
-    } finally {
-      setCreating(false);
-    }
+    dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { sourceType } });
+    setShowList(false);
   };
 
   const openHandover = (handoverId) => {

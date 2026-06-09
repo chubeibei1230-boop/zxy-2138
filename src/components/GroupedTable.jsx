@@ -407,7 +407,29 @@ export default function GroupedTable() {
                             </span>
                           </td>
                           <td>
-                            <div className="material-name">{material.name}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <div className="material-name">{material.name}</div>
+                              {material.followUp && (
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    padding: '1px 6px',
+                                    borderRadius: '8px',
+                                    background: '#fdf2f8',
+                                    color: '#ec4899',
+                                    border: '1px solid #fbcfe8',
+                                    fontWeight: '500',
+                                  }}
+                                >
+                                  ⏩ 跟进中
+                                </span>
+                              )}
+                            </div>
+                            {material.handoverRemark && (
+                              <div style={{ fontSize: '11px', color: '#3b82f6', marginTop: '3px' }}>
+                                💬 {material.handoverRemark}
+                              </div>
+                            )}
                             {groupBy !== GROUP_BY.PERSON && (
                               <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                                 👤 {material.personInCharge || '未分配'}

@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import {
   STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS,
   HANDOVER_STATUS, HANDOVER_STATUS_LABELS, HANDOVER_STATUS_COLORS,
-  HANDOVER_SOURCE_TYPE,
+  HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal,
 } from '../db';
 
 export default function HandoverModal() {
@@ -19,6 +19,8 @@ export default function HandoverModal() {
   const [editingItemId, setEditingItemId] = useState(null);
   const [localForm, setLocalForm] = useState({});
 
+  const isCreating = !currentHandover && showHandoverModal;
+
   useEffect(() => {
     if (currentHandover?.handover) {
       setLocalForm({
@@ -28,10 +30,16 @@ export default function HandoverModal() {
         receiverPerson: currentHandover.handover.receiverPerson || '',
         remark: currentHandover.handover.remark || '',
       });
+    } else if (isCreating) {
+      setLocalForm({
+        title: `会前交接清单 - ${new Date().toLocaleDateString('zh-CN')}`,
+        handoverTime: getLocalDatetimeLocal(),
+        handoverPerson: '',
+        receiverPerson: '',
+        remark: '',
+      });
     }
-  }, [currentHandover?.handover?.id]);
-
-  const isCreating = !currentHandover && showHandoverModal;
+  }, [currentHandover?.handover?.id, isCreating]);
 
   const handleClose = () => {
     dispatch({ type: 'CLOSE_HANDOVER_MODAL' });
@@ -170,12 +178,6 @@ export default function HandoverModal() {
 
   const handleConfirm = async (item, confirmed) => {
     await updateHandoverItem(item.id, { confirmed });
-    if (confirmed) {
-      const m = item.material;
-      if (item.confirmedPreparedQty >= m.requiredQty) {
-        await updateHandoverItem(item.id, { confirmed });
-      }
-    }
   };
 
   const handleFollowUp = async (itemId, followUp) => {

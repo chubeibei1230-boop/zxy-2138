@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal } from '../db';
 
 const AppContext = createContext(null);
 
@@ -343,7 +343,7 @@ export function AppProvider({ children }) {
     const handover = {
       title: title || `会前交接清单 - ${new Date().toLocaleDateString('zh-CN')}`,
       createdAt: new Date().toISOString(),
-      handoverTime: handoverTime || new Date().toISOString().slice(0, 16),
+      handoverTime: handoverTime || getLocalDatetimeLocal(),
       handoverPerson: handoverPerson || '',
       receiverPerson: receiverPerson || '',
       remark: remark || '',
@@ -385,39 +385,108 @@ export function AppProvider({ children }) {
     await db.handoverItems.update(itemId, updates);
     dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: itemId, ...updates }] });
 
-    if (syncMaterial && updates.confirmedPreparedQty !== undefined) {
-      const item = state.handoverItems.find(i => i.id === itemId);
-      if (item) {
-        const materialUpdates = { preparedQty: updates.confirmedPreparedQty };
-        if (updates.confirmedPreparedQty >= state.materials.find(m => m.id === item.materialId)?.requiredQty) {
-          materialUpdates.status = MATERIAL_STATUS.READY;
+    const item = state.handoverItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    if (updates.confirmed) {
+      const handover = state.handovers.find(h => h.id === item.handoverId);
+      if (handover && handover.status === HANDOVER_STATUS.DRAFT) {
+        await db.handovers.update(handover.id, { status: HANDOVER_STATUS.IN_PROGRESS });
+        dispatch({ type: 'UPDATE_HANDOVER', payload: { id: handover.id, status: HANDOVER_STATUS.IN_PROGRESS } });
+      }
+    }
+
+    const material = state.materials.find(m => m.id === item.materialId);
+    if (!material) return;
+
+    const materialUpdates = {};
+    let hasMaterialUpdate = false;
+
+    if (updates.confirmedPreparedQty !== undefined) {
+      materialUpdates.preparedQty = updates.confirmedPreparedQty;
+      hasMaterialUpdate = true;
+      if (updates.confirmedPreparedQty >= material.requiredQty) {
+        materialUpdates.status = MATERIAL_STATUS.READY;
+      }
+    }
+
+    if (updates.confirmed !== undefined) {
+      const preparedQty = (updates.confirmedPreparedQty !== undefined ? updates.confirmedPreparedQty : item.confirmedPreparedQty);
+      if (updates.confirmed && preparedQty >= material.requiredQty) {
+        materialUpdates.status = MATERIAL_STATUS.READY;
+        if (materialUpdates.preparedQty === undefined) {
+          materialUpdates.preparedQty = preparedQty;
         }
-        await updateMaterialField(item.materialId, 'preparedQty', materialUpdates.preparedQty);
-        if (materialUpdates.status) {
-          await updateMaterialField(item.materialId, 'status', materialUpdates.status);
+        hasMaterialUpdate = true;
+      }
+      if (updates.confirmed && preparedQty < material.requiredQty) {
+        if (material.status !== MATERIAL_STATUS.SHORTAGE) {
+          materialUpdates.status = MATERIAL_STATUS.PREPARING;
+          hasMaterialUpdate = true;
         }
       }
     }
-  }, [state.handoverItems, state.materials, updateMaterialField]);
+
+    if (updates.followUp !== undefined) {
+      materialUpdates.followUp = updates.followUp;
+      hasMaterialUpdate = true;
+    }
+
+    if (updates.itemRemark !== undefined) {
+      materialUpdates.handoverRemark = updates.itemRemark;
+      hasMaterialUpdate = true;
+    }
+
+    if (hasMaterialUpdate) {
+      await db.materials.update(item.materialId, materialUpdates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: item.materialId, ...materialUpdates }] });
+    }
+  }, [state.handoverItems, state.materials]);
 
   const bulkConfirmHandoverItems = useCallback(async (itemIds, confirmed) => {
     const updates = itemIds.map(id => ({ id, confirmed }));
     await Promise.all(itemIds.map(id => db.handoverItems.update(id, { confirmed })));
     dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: updates });
 
-    if (confirmed) {
-      const items = state.handoverItems.filter(i => itemIds.includes(i.id));
-      const materialUpdates = items.map(item => {
-        const material = state.materials.find(m => m.id === item.materialId);
-        if (material && item.confirmedPreparedQty >= material.requiredQty) {
-          return { id: item.materialId, status: MATERIAL_STATUS.READY };
+    if (confirmed && itemIds.length > 0) {
+      const firstItem = state.handoverItems.find(i => i.id === itemIds[0]);
+      if (firstItem) {
+        const handover = state.handovers.find(h => h.id === firstItem.handoverId);
+        if (handover && handover.status === HANDOVER_STATUS.DRAFT) {
+          await db.handovers.update(handover.id, { status: HANDOVER_STATUS.IN_PROGRESS });
+          dispatch({ type: 'UPDATE_HANDOVER', payload: { id: handover.id, status: HANDOVER_STATUS.IN_PROGRESS } });
         }
-        return null;
-      }).filter(Boolean);
-      if (materialUpdates.length > 0) {
-        await Promise.all(materialUpdates.map(u => db.materials.update(u.id, { status: u.status })));
-        dispatch({ type: 'UPDATE_MATERIALS', payload: materialUpdates });
       }
+    }
+
+    const items = state.handoverItems.filter(i => itemIds.includes(i.id));
+    const materialUpdates = items.map(item => {
+      const material = state.materials.find(m => m.id === item.materialId);
+      if (!material) return null;
+      const mu = {};
+      let changed = false;
+
+      if (confirmed) {
+        if (item.confirmedPreparedQty >= material.requiredQty) {
+          mu.status = MATERIAL_STATUS.READY;
+          mu.preparedQty = item.confirmedPreparedQty;
+          changed = true;
+        } else {
+          if (material.status !== MATERIAL_STATUS.SHORTAGE) {
+            mu.status = MATERIAL_STATUS.PREPARING;
+            changed = true;
+          }
+          mu.preparedQty = item.confirmedPreparedQty;
+          changed = true;
+        }
+      }
+
+      return changed ? { id: item.materialId, ...mu } : null;
+    }).filter(Boolean);
+
+    if (materialUpdates.length > 0) {
+      await Promise.all(materialUpdates.map(u => db.materials.update(u.id, { ...u })));
+      dispatch({ type: 'UPDATE_MATERIALS', payload: materialUpdates });
     }
   }, [state.handoverItems, state.materials]);
 

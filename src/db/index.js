@@ -11,6 +11,21 @@ db.version(2).stores({
   handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty',
 });
 
+db.version(3).stores({
+  rooms: '++id, name, capacity',
+  categories: '++id, name, icon',
+  meetings: '++id, title, date, batch, roomId, personInCharge, timeSlot, status',
+  materials: '++id, meetingId, categoryId, name, requiredQty, preparedQty, shortageNote, status, roomId, personInCharge, batch, followUp, handoverRemark',
+  handovers: '++id, title, createdAt, handoverTime, handoverPerson, receiverPerson, remark, status, sourceType, materialCount',
+  handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty',
+});
+
+export function getLocalDatetimeLocal() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export const DEFAULT_CATEGORIES = [
   { name: '签到物料', icon: '📋' },
   { name: '指引贴', icon: '📍' },
