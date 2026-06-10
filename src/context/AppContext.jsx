@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE, RECTIFICATION_TYPE, RECTIFICATION_STATUS, RECTIFICATION_SOURCE_TYPE, TASK_SOURCE_TYPE, TASK_STATUS, isTaskOverdue } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE, RECTIFICATION_TYPE, RECTIFICATION_TYPE_LABELS, RECTIFICATION_STATUS, RECTIFICATION_SOURCE_TYPE, TASK_SOURCE_TYPE, TASK_STATUS, isTaskOverdue, ESCALATION_TYPE, ESCALATION_STATUS, ESCALATION_SOURCE_TYPE, ESCALATION_REVIEW_RESULT, isEscalationOverdue, addEscalationOperationLog } from '../db';
 
 const AppContext = createContext(null);
 
@@ -14,6 +14,7 @@ export const RISK_VIEW = {
   DASHBOARD: 'dashboard',
   RECTIFICATION: 'rectification',
   TASK_LIST: 'task_list',
+  ESCALATION_POOL: 'escalation_pool',
 };
 
 export const RECTIFICATION_GROUP_BY = {
@@ -21,6 +22,14 @@ export const RECTIFICATION_GROUP_BY = {
   ROOM: 'room',
   PERSON: 'person',
   TYPE: 'type',
+};
+
+export const ESCALATION_GROUP_BY = {
+  MEETING: 'meeting',
+  ROOM: 'room',
+  PERSON: 'person',
+  TYPE: 'type',
+  STATUS: 'status',
 };
 
 const initialState = {
@@ -31,6 +40,7 @@ const initialState = {
   handovers: [],
   handoverItems: [],
   rectifications: [],
+  escalations: [],
   loading: true,
   filters: {
     dateRange: { start: '', end: '' },
@@ -85,6 +95,21 @@ const initialState = {
   showTaskModal: false,
   taskMobileDetailExpanded: false,
   taskGroupBy: 'meeting',
+  escalationGroupBy: ESCALATION_GROUP_BY.MEETING,
+  escalationFilters: {
+    dateRange: { start: '', end: '' },
+    roomIds: [],
+    personInCharges: [],
+    meetingIds: [],
+    types: [],
+    statuses: [],
+    owners: [],
+    showClosed: false,
+  },
+  selectedEscalationId: null,
+  selectedEscalationQuery: null,
+  showEscalationModal: false,
+  escalationMobileDetailExpanded: false,
 };
 
 function appReducer(state, action) {
@@ -278,6 +303,41 @@ function appReducer(state, action) {
       return { ...state, showTaskModal: false };
     case 'SET_TASK_GROUP_BY':
       return { ...state, taskGroupBy: action.payload };
+    case 'SET_ESCALATIONS':
+      return { ...state, escalations: action.payload };
+    case 'UPDATE_ESCALATIONS': {
+      const updatedMap = new Map(action.payload.map(e => [e.id, e]));
+      return {
+        ...state,
+        escalations: state.escalations.map(e => updatedMap.has(e.id) ? { ...e, ...updatedMap.get(e.id) } : e),
+      };
+    }
+    case 'ADD_ESCALATIONS':
+      return { ...state, escalations: [...state.escalations, ...action.payload] };
+    case 'DELETE_ESCALATIONS':
+      return {
+        ...state,
+        escalations: state.escalations.filter(e => !action.payload.includes(e.id)),
+        selectedEscalationId: action.payload.includes(state.selectedEscalationId) ? null : state.selectedEscalationId,
+      };
+    case 'SET_ESCALATION_GROUP_BY':
+      return { ...state, escalationGroupBy: action.payload };
+    case 'SET_ESCALATION_FILTERS':
+      return {
+        ...state,
+        escalationFilters: { ...state.escalationFilters, ...action.payload },
+        selectedEscalationId: null,
+      };
+    case 'SET_SELECTED_ESCALATION':
+      return { ...state, selectedEscalationId: action.payload, escalationMobileDetailExpanded: true };
+    case 'TOGGLE_ESCALATION_MOBILE_DETAIL':
+      return { ...state, escalationMobileDetailExpanded: !state.escalationMobileDetailExpanded };
+    case 'OPEN_ESCALATION_MODAL':
+      return { ...state, showEscalationModal: true, selectedEscalationId: action.payload?.id ?? state.selectedEscalationId };
+    case 'CLOSE_ESCALATION_MODAL':
+      return { ...state, showEscalationModal: false };
+    case 'SET_SELECTED_ESCALATION_QUERY':
+      return { ...state, selectedEscalationQuery: action.payload };
     default:
       return state;
   }
@@ -289,7 +349,7 @@ export function AppProvider({ children }) {
   useEffect(() => {
     async function init() {
       await seedDatabase();
-      const [rooms, categories, meetings, materials, handovers, handoverItems, rectifications] = await Promise.all([
+      const [rooms, categories, meetings, materials, handovers, handoverItems, rectifications, escalations] = await Promise.all([
         db.rooms.toArray(),
         db.categories.toArray(),
         db.meetings.toArray(),
@@ -297,10 +357,12 @@ export function AppProvider({ children }) {
         db.handovers.toArray(),
         db.handoverItems.toArray(),
         db.rectifications.toArray(),
+        db.escalations.toArray(),
       ]);
       dispatch({ type: 'SET_DATA', payload: { rooms, categories, meetings, materials } });
       dispatch({ type: 'SET_HANDOVER_DATA', payload: { handovers, handoverItems } });
       dispatch({ type: 'SET_RECTIFICATIONS', payload: rectifications });
+      dispatch({ type: 'SET_ESCALATIONS', payload: escalations });
     }
     init();
   }, []);
@@ -2031,6 +2093,878 @@ export function AppProvider({ children }) {
     };
   }, [preMeetingTasks]);
 
+  const escalationItems = useMemo(() => {
+    const items = [];
+    const meetingsMap = new Map();
+    const roomsMap = new Map();
+    const categoriesMap = new Map();
+
+    state.meetings.forEach(m => meetingsMap.set(m.id, m));
+    state.rooms.forEach(r => roomsMap.set(r.id, r));
+    state.categories.forEach(c => categoriesMap.set(c.id, c));
+
+    state.materials.forEach(material => {
+      const meeting = meetingsMap.get(material.meetingId);
+      const room = roomsMap.get(material.roomId);
+      const category = categoriesMap.get(material.categoryId);
+      const fStatus = getFollowUpStatus(material);
+      const isShortage = material.preparedQty < material.requiredQty || material.status === MATERIAL_STATUS.SHORTAGE;
+
+      const baseItem = {
+        id: `mat_${material.id}_`,
+        sourceType: ESCALATION_SOURCE_TYPE.MATERIAL,
+        sourceId: material.id,
+        materialId: material.id,
+        material,
+        meetingId: material.meetingId,
+        meeting,
+        roomId: material.roomId,
+        room,
+        category,
+        personInCharge: material.personInCharge || meeting?.personInCharge || '',
+        shortageQty: Math.max(0, material.requiredQty - material.preparedQty),
+      };
+
+      if (isShortage) {
+        const existingEsc = state.escalations.find(
+          e => e.sourceType === ESCALATION_SOURCE_TYPE.MATERIAL && e.sourceId === material.id && e.type === ESCALATION_TYPE.SHORTAGE
+        );
+        const escStatus = existingEsc?.status || ESCALATION_STATUS.PENDING_CLAIM;
+        if (escStatus !== ESCALATION_STATUS.CLOSED && escStatus !== ESCALATION_STATUS.RESTORED) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_shortage`,
+            type: ESCALATION_TYPE.SHORTAGE,
+            status: escStatus,
+            owner: existingEsc?.owner || '',
+            progress: existingEsc?.progress || '',
+            remark: existingEsc?.remark || material.shortageNote || '',
+            expectedCompleteTime: existingEsc?.expectedCompleteTime || '',
+            assignedAt: existingEsc?.assignedAt || '',
+            restoredAt: existingEsc?.restoredAt || '',
+            reviewRequestedAt: existingEsc?.reviewRequestedAt || '',
+            reviewedAt: existingEsc?.reviewedAt || '',
+            reviewResult: existingEsc?.reviewResult || '',
+            reviewRemark: existingEsc?.reviewRemark || '',
+            returnedReason: existingEsc?.returnedReason || '',
+            operationLogs: existingEsc?.operationLogs || [],
+            _escId: existingEsc?.id || null,
+          });
+        }
+      }
+
+      if (material.status === MATERIAL_STATUS.REVIEW) {
+        const existingEsc = state.escalations.find(
+          e => e.sourceType === ESCALATION_SOURCE_TYPE.MATERIAL && e.sourceId === material.id && e.type === ESCALATION_TYPE.REVIEW
+        );
+        const escStatus = existingEsc?.status || ESCALATION_STATUS.PENDING_CLAIM;
+        if (escStatus !== ESCALATION_STATUS.CLOSED && escStatus !== ESCALATION_STATUS.RESTORED) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_review`,
+            type: ESCALATION_TYPE.REVIEW,
+            status: escStatus,
+            owner: existingEsc?.owner || '',
+            progress: existingEsc?.progress || '',
+            remark: existingEsc?.remark || '',
+            expectedCompleteTime: existingEsc?.expectedCompleteTime || '',
+            assignedAt: existingEsc?.assignedAt || '',
+            restoredAt: existingEsc?.restoredAt || '',
+            reviewRequestedAt: existingEsc?.reviewRequestedAt || '',
+            reviewedAt: existingEsc?.reviewedAt || '',
+            reviewResult: existingEsc?.reviewResult || '',
+            reviewRemark: existingEsc?.reviewRemark || '',
+            returnedReason: existingEsc?.returnedReason || '',
+            operationLogs: existingEsc?.operationLogs || [],
+            _escId: existingEsc?.id || null,
+          });
+        }
+      }
+
+      if (fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+        const existingEsc = state.escalations.find(
+          e => e.sourceType === ESCALATION_SOURCE_TYPE.MATERIAL && e.sourceId === material.id && e.type === ESCALATION_TYPE.FOLLOW_UP_OVERDUE
+        );
+        const escStatus = existingEsc?.status || ESCALATION_STATUS.PENDING_CLAIM;
+        if (escStatus !== ESCALATION_STATUS.CLOSED && escStatus !== ESCALATION_STATUS.RESTORED) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_f_overdue`,
+            type: ESCALATION_TYPE.FOLLOW_UP_OVERDUE,
+            status: escStatus,
+            owner: existingEsc?.owner || material.followUpOwner || '',
+            progress: existingEsc?.progress || '',
+            remark: existingEsc?.remark || material.followUpNote || '',
+            expectedCompleteTime: existingEsc?.expectedCompleteTime || material.followUpDueTime || '',
+            assignedAt: existingEsc?.assignedAt || '',
+            restoredAt: existingEsc?.restoredAt || '',
+            reviewRequestedAt: existingEsc?.reviewRequestedAt || '',
+            reviewedAt: existingEsc?.reviewedAt || '',
+            reviewResult: existingEsc?.reviewResult || '',
+            reviewRemark: existingEsc?.reviewRemark || '',
+            returnedReason: existingEsc?.returnedReason || '',
+            operationLogs: existingEsc?.operationLogs || [],
+            _escId: existingEsc?.id || null,
+          });
+        }
+      } else if (fStatus === FOLLOW_UP_STATUS.PENDING) {
+        const existingEsc = state.escalations.find(
+          e => e.sourceType === ESCALATION_SOURCE_TYPE.MATERIAL && e.sourceId === material.id && e.type === ESCALATION_TYPE.FOLLOW_UP_PENDING
+        );
+        const escStatus = existingEsc?.status || ESCALATION_STATUS.PENDING_CLAIM;
+        if (escStatus !== ESCALATION_STATUS.CLOSED && escStatus !== ESCALATION_STATUS.RESTORED) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_f_pending`,
+            type: ESCALATION_TYPE.FOLLOW_UP_PENDING,
+            status: escStatus,
+            owner: existingEsc?.owner || material.followUpOwner || '',
+            progress: existingEsc?.progress || '',
+            remark: existingEsc?.remark || material.followUpNote || '',
+            expectedCompleteTime: existingEsc?.expectedCompleteTime || material.followUpDueTime || '',
+            assignedAt: existingEsc?.assignedAt || '',
+            restoredAt: existingEsc?.restoredAt || '',
+            reviewRequestedAt: existingEsc?.reviewRequestedAt || '',
+            reviewedAt: existingEsc?.reviewedAt || '',
+            reviewResult: existingEsc?.reviewResult || '',
+            reviewRemark: existingEsc?.reviewRemark || '',
+            returnedReason: existingEsc?.returnedReason || '',
+            operationLogs: existingEsc?.operationLogs || [],
+            _escId: existingEsc?.id || null,
+          });
+        }
+      }
+    });
+
+    state.handoverItems.forEach(hi => {
+      if (hi.confirmed) return;
+      const handover = state.handovers.find(h => h.id === hi.handoverId);
+      if (!handover || handover.status === HANDOVER_STATUS.COMPLETED || handover.status === HANDOVER_STATUS.ARCHIVED) return;
+
+      const material = state.materials.find(m => m.id === hi.materialId);
+      if (!material) return;
+      const meeting = meetingsMap.get(material.meetingId);
+      const room = roomsMap.get(material.roomId);
+      const category = categoriesMap.get(material.categoryId);
+
+      const existingEsc = state.escalations.find(
+        e => e.sourceType === ESCALATION_SOURCE_TYPE.HANDOVER_ITEM && e.sourceId === hi.id && e.type === ESCALATION_TYPE.HANDOVER_INCOMPLETE
+      );
+      const escStatus = existingEsc?.status || ESCALATION_STATUS.PENDING_CLAIM;
+      if (escStatus !== ESCALATION_STATUS.CLOSED && escStatus !== ESCALATION_STATUS.RESTORED) {
+        items.push({
+          id: `hi_${hi.id}_handover`,
+          sourceType: ESCALATION_SOURCE_TYPE.HANDOVER_ITEM,
+          sourceId: hi.id,
+          handoverItemId: hi.id,
+          handover,
+          handoverItem: hi,
+          materialId: material.id,
+          material,
+          meetingId: material.meetingId,
+          meeting,
+          roomId: material.roomId,
+          room,
+          category,
+          personInCharge: handover.receiverPerson || material.personInCharge || meeting?.personInCharge || '',
+          shortageQty: Math.max(0, material.requiredQty - (hi.confirmedPreparedQty ?? material.preparedQty)),
+          type: ESCALATION_TYPE.HANDOVER_INCOMPLETE,
+          status: escStatus,
+          owner: existingEsc?.owner || handover.receiverPerson || '',
+          progress: existingEsc?.progress || '',
+          remark: existingEsc?.remark || hi.itemRemark || '',
+          expectedCompleteTime: existingEsc?.expectedCompleteTime || handover.handoverTime || '',
+          assignedAt: existingEsc?.assignedAt || '',
+          restoredAt: existingEsc?.restoredAt || '',
+          reviewRequestedAt: existingEsc?.reviewRequestedAt || '',
+          reviewedAt: existingEsc?.reviewedAt || '',
+          reviewResult: existingEsc?.reviewResult || '',
+          reviewRemark: existingEsc?.reviewRemark || '',
+          returnedReason: existingEsc?.returnedReason || '',
+          operationLogs: existingEsc?.operationLogs || [],
+          _escId: existingEsc?.id || null,
+        });
+      }
+    });
+
+    state.rectifications.forEach(rect => {
+      if (rect.status === RECTIFICATION_STATUS.COMPLETED) return;
+
+      const now = new Date();
+      const assignedAt = rect.assignedAt ? new Date(rect.assignedAt) : null;
+      const isStagnant = assignedAt && (now - assignedAt) > 3 * 24 * 60 * 60 * 1000;
+
+      if (isStagnant || rect.status === RECTIFICATION_STATUS.PENDING) {
+        const material = state.materials.find(m => m.id === rect.materialId);
+        const meeting = rect.meetingId ? meetingsMap.get(rect.meetingId) : null;
+        const room = rect.roomId ? roomsMap.get(rect.roomId) : null;
+        const category = material ? categoriesMap.get(material.categoryId) : null;
+
+        const existingEsc = state.escalations.find(
+          e => e.sourceType === ESCALATION_SOURCE_TYPE.RECTIFICATION && e.sourceId === rect.id && e.type === ESCALATION_TYPE.RECTIFICATION_STAGNANT
+        );
+        const escStatus = existingEsc?.status || ESCALATION_STATUS.PENDING_CLAIM;
+        if (escStatus !== ESCALATION_STATUS.CLOSED && escStatus !== ESCALATION_STATUS.RESTORED) {
+          items.push({
+            id: `rect_${rect.id}_stagnant`,
+            sourceType: ESCALATION_SOURCE_TYPE.RECTIFICATION,
+            sourceId: rect.id,
+            rectificationId: rect.id,
+            rectification: rect,
+            materialId: rect.materialId,
+            material,
+            meetingId: rect.meetingId,
+            meeting,
+            roomId: rect.roomId,
+            room,
+            category,
+            personInCharge: rect.owner || meeting?.personInCharge || '',
+            shortageQty: 0,
+            type: ESCALATION_TYPE.RECTIFICATION_STAGNANT,
+            status: escStatus,
+            owner: existingEsc?.owner || rect.owner || '',
+            progress: existingEsc?.progress || rect.progress || '',
+            remark: existingEsc?.remark || rect.remark || '',
+            expectedCompleteTime: existingEsc?.expectedCompleteTime || rect.dueTime || '',
+            assignedAt: existingEsc?.assignedAt || rect.assignedAt || '',
+            restoredAt: existingEsc?.restoredAt || '',
+            reviewRequestedAt: existingEsc?.reviewRequestedAt || '',
+            reviewedAt: existingEsc?.reviewedAt || '',
+            reviewResult: existingEsc?.reviewResult || '',
+            reviewRemark: existingEsc?.reviewRemark || '',
+            returnedReason: existingEsc?.returnedReason || rect.returnedReason || '',
+            operationLogs: existingEsc?.operationLogs || [],
+            _escId: existingEsc?.id || null,
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [state.materials, state.meetings, state.rooms, state.categories, state.handovers, state.handoverItems, state.rectifications, state.escalations]);
+
+  const filteredEscalationItems = useMemo(() => {
+    const { dateRange, roomIds, personInCharges, meetingIds, types, statuses, owners, showClosed } = state.escalationFilters;
+    let result = [...escalationItems];
+
+    if (!showClosed) {
+      result = result.filter(e => e.status !== ESCALATION_STATUS.CLOSED && e.status !== ESCALATION_STATUS.RESTORED);
+    }
+
+    if (dateRange.start) {
+      result = result.filter(item => item.meeting && item.meeting.date >= dateRange.start);
+    }
+    if (dateRange.end) {
+      result = result.filter(item => item.meeting && item.meeting.date <= dateRange.end);
+    }
+    if (roomIds.length > 0) {
+      result = result.filter(item => roomIds.includes(item.roomId));
+    }
+    if (personInCharges.length > 0) {
+      result = result.filter(item => personInCharges.includes(item.personInCharge));
+    }
+    if (meetingIds.length > 0) {
+      result = result.filter(item => meetingIds.includes(item.meetingId));
+    }
+    if (types.length > 0) {
+      result = result.filter(item => types.includes(item.type));
+    }
+    if (statuses.length > 0) {
+      result = result.filter(item => statuses.includes(item.status));
+    }
+    if (owners.length > 0) {
+      result = result.filter(item => owners.includes(item.owner));
+    }
+
+    return result;
+  }, [escalationItems, state.escalationFilters]);
+
+  const escalationSummary = useMemo(() => {
+    const items = escalationItems;
+    const total = items.length;
+    const typeStats = {};
+    const statusStats = {};
+    const byMeeting = new Map();
+    const byRoom = new Map();
+    const byPerson = new Map();
+    const byOwner = new Map();
+
+    Object.values(ESCALATION_TYPE).forEach(v => typeStats[v] = 0);
+    Object.values(ESCALATION_STATUS).forEach(v => statusStats[v] = 0);
+
+    items.forEach(item => {
+      typeStats[item.type] = (typeStats[item.type] || 0) + 1;
+      statusStats[item.status] = (statusStats[item.status] || 0) + 1;
+
+      if (item.meetingId) {
+        if (!byMeeting.has(item.meetingId)) byMeeting.set(item.meetingId, []);
+        byMeeting.get(item.meetingId).push(item);
+      }
+      if (item.roomId) {
+        if (!byRoom.has(item.roomId)) byRoom.set(item.roomId, []);
+        byRoom.get(item.roomId).push(item);
+      }
+      const person = item.personInCharge;
+      if (person) {
+        if (!byPerson.has(person)) byPerson.set(person, []);
+        byPerson.get(person).push(item);
+      }
+      const owner = item.owner;
+      if (owner) {
+        if (!byOwner.has(owner)) byOwner.set(owner, []);
+        byOwner.get(owner).push(item);
+      }
+    });
+
+    const pendingClaimCount = statusStats[ESCALATION_STATUS.PENDING_CLAIM] || 0;
+    const inProgressCount = statusStats[ESCALATION_STATUS.IN_PROGRESS] || 0;
+    const pendingReviewCount = statusStats[ESCALATION_STATUS.PENDING_REVIEW] || 0;
+    const restoredCount = statusStats[ESCALATION_STATUS.RESTORED] || 0;
+    const closedCount = statusStats[ESCALATION_STATUS.CLOSED] || 0;
+    const activeCount = total - restoredCount - closedCount;
+
+    const meetingsWithBlockers = [];
+    const meetingsCompleted = [];
+
+    byMeeting.forEach((meetingItems, meetingId) => {
+      const meeting = meetingItems[0]?.meeting;
+      if (!meeting) return;
+
+      const hasActive = meetingItems.some(item =>
+        item.status !== ESCALATION_STATUS.CLOSED && item.status !== ESCALATION_STATUS.RESTORED
+      );
+      const allClosed = meetingItems.every(item =>
+        item.status === ESCALATION_STATUS.CLOSED || item.status === ESCALATION_STATUS.RESTORED
+      );
+
+      if (hasActive) {
+        meetingsWithBlockers.push({
+          meetingId,
+          meeting,
+          items: meetingItems,
+          activeCount: meetingItems.filter(i => i.status !== ESCALATION_STATUS.CLOSED && i.status !== ESCALATION_STATUS.RESTORED).length,
+          totalCount: meetingItems.length,
+        });
+      } else if (allClosed && meetingItems.length > 0) {
+        meetingsCompleted.push({
+          meetingId,
+          meeting,
+          items: meetingItems,
+          totalCount: meetingItems.length,
+        });
+      }
+    });
+
+    meetingsWithBlockers.sort((a, b) => {
+      if (a.activeCount !== b.activeCount) return b.activeCount - a.activeCount;
+      return (a.meeting?.date || '').localeCompare(b.meeting?.date || '');
+    });
+
+    meetingsCompleted.sort((a, b) => (a.meeting?.date || '').localeCompare(b.meeting?.date || ''));
+
+    return {
+      total,
+      activeCount,
+      typeStats,
+      statusStats,
+      pendingClaimCount,
+      inProgressCount,
+      pendingReviewCount,
+      restoredCount,
+      closedCount,
+      byMeeting,
+      byRoom,
+      byPerson,
+      byOwner,
+      meetingsWithBlockers,
+      meetingsCompleted,
+    };
+  }, [escalationItems]);
+
+  const groupedEscalations = useMemo(() => {
+    const { escalationGroupBy } = state;
+    const groups = {};
+    const getKey = (item) => {
+      switch (escalationGroupBy) {
+        case ESCALATION_GROUP_BY.MEETING:
+          return String(item.meetingId || 'unknown');
+        case ESCALATION_GROUP_BY.ROOM:
+          return String(item.roomId || 'unknown');
+        case ESCALATION_GROUP_BY.PERSON:
+          return item.personInCharge || item.owner || '未分配';
+        case ESCALATION_GROUP_BY.TYPE:
+          return item.type;
+        case ESCALATION_GROUP_BY.STATUS:
+          return item.status;
+        default:
+          return item.type;
+      }
+    };
+    const getLabel = (item) => {
+      switch (escalationGroupBy) {
+        case ESCALATION_GROUP_BY.MEETING:
+          return item.meeting ? `${item.meeting.title} · ${item.meeting.date}` : '未知会议';
+        case ESCALATION_GROUP_BY.ROOM:
+          return item.room?.name || '未知会议室';
+        case ESCALATION_GROUP_BY.PERSON:
+          return item.personInCharge || item.owner || '未分配';
+        case ESCALATION_GROUP_BY.TYPE: {
+          const labels = {
+            [ESCALATION_TYPE.SHORTAGE]: '📦 物料短缺',
+            [ESCALATION_TYPE.REVIEW]: '🔍 需复核',
+            [ESCALATION_TYPE.FOLLOW_UP_PENDING]: '⏩ 待跟进',
+            [ESCALATION_TYPE.FOLLOW_UP_OVERDUE]: '⏰ 逾期跟进',
+            [ESCALATION_TYPE.HANDOVER_INCOMPLETE]: '🤝 交接未完成',
+            [ESCALATION_TYPE.RECTIFICATION_STAGNANT]: '⚠️ 整改停滞',
+          };
+          return labels[item.type] || item.type;
+        }
+        case ESCALATION_GROUP_BY.STATUS: {
+          const labels = {
+            [ESCALATION_STATUS.PENDING_CLAIM]: '📋 待认领',
+            [ESCALATION_STATUS.IN_PROGRESS]: '⚙️ 处理中',
+            [ESCALATION_STATUS.PENDING_REVIEW]: '🔍 待复核',
+            [ESCALATION_STATUS.RESTORED]: '✅ 已恢复',
+            [ESCALATION_STATUS.CLOSED]: '📦 已闭环',
+          };
+          return labels[item.status] || item.status;
+        }
+        default:
+          return '未分组';
+      }
+    };
+
+    filteredEscalationItems.forEach(item => {
+      const key = getKey(item);
+      if (!groups[key]) {
+        groups[key] = { key, label: getLabel(item), items: [] };
+      }
+      groups[key].items.push(item);
+    });
+
+    return Object.values(groups).sort((a, b) => {
+      const statusPriority = { pending_claim: 0, in_progress: 1, pending_review: 2, restored: 3, closed: 4 };
+      const aMaxStatus = Math.min(...a.items.map(i => statusPriority[i.status] ?? 5));
+      const bMaxStatus = Math.min(...b.items.map(i => statusPriority[i.status] ?? 5));
+      if (aMaxStatus !== bMaxStatus) return aMaxStatus - bMaxStatus;
+      return a.label.localeCompare(b.label);
+    });
+  }, [filteredEscalationItems, state.escalationGroupBy]);
+
+  const selectedEscalation = useMemo(() => {
+    if (!state.selectedEscalationId) return null;
+    return escalationItems.find(item => item.id === state.selectedEscalationId) || null;
+  }, [escalationItems, state.selectedEscalationId]);
+
+  useEffect(() => {
+    if (!state.selectedEscalationQuery || escalationItems.length === 0) return;
+    const query = state.selectedEscalationQuery;
+    let found = null;
+    if (query.materialId) {
+      found = escalationItems.find(item => item.materialId === query.materialId);
+    } else if (query.id) {
+      found = escalationItems.find(item => item.id === query.id);
+    }
+    if (found) {
+      dispatch({ type: 'SET_SELECTED_ESCALATION', payload: found.id });
+    }
+    dispatch({ type: 'SET_SELECTED_ESCALATION_QUERY', payload: null });
+  }, [escalationItems, state.selectedEscalationQuery]);
+
+  const claimEscalation = useCallback(async (escItem, owner, expectedCompleteTime = '') => {
+    const now = new Date().toISOString();
+
+    const operationLogs = addEscalationOperationLog(escItem, '认领', owner, '认领该异常事项');
+
+    let escRecord = null;
+    if (escItem._escId) {
+      escRecord = {
+        id: escItem._escId,
+        owner,
+        status: ESCALATION_STATUS.IN_PROGRESS,
+        assignedAt: now,
+        expectedCompleteTime: expectedCompleteTime || escItem.expectedCompleteTime,
+        operationLogs,
+        updatedAt: now,
+      };
+      await db.escalations.update(escItem._escId, escRecord);
+    } else {
+      escRecord = {
+        sourceType: escItem.sourceType,
+        sourceId: escItem.sourceId,
+        materialId: escItem.materialId,
+        meetingId: escItem.meetingId,
+        roomId: escItem.roomId,
+        type: escItem.type,
+        status: ESCALATION_STATUS.IN_PROGRESS,
+        owner,
+        creator: '',
+        progress: escItem.progress || '',
+        remark: escItem.remark || '',
+        expectedCompleteTime: expectedCompleteTime || escItem.expectedCompleteTime,
+        assignedAt: now,
+        restoredAt: '',
+        reviewRequestedAt: '',
+        reviewedAt: '',
+        reviewResult: '',
+        reviewRemark: '',
+        returnedReason: '',
+        createdAt: now,
+        updatedAt: now,
+        operationLogs,
+      };
+      const id = await db.escalations.add(escRecord);
+      escRecord.id = id;
+    }
+
+    if (escRecord) {
+      dispatch({ type: escItem._escId ? 'UPDATE_ESCALATIONS' : 'ADD_ESCALATIONS', payload: escItem._escId ? [escRecord] : [escRecord] });
+    }
+
+    return true;
+  }, []);
+
+  const reassignEscalation = useCallback(async (escItem, newOwner, expectedCompleteTime = '', reassignReason = '') => {
+    if (!escItem._escId) {
+      await claimEscalation(escItem, newOwner, expectedCompleteTime);
+      return true;
+    }
+
+    const now = new Date().toISOString();
+    const operationLogs = addEscalationOperationLog(escItem, '转派', newOwner, `转派原因: ${reassignReason || '调整责任人'}`);
+
+    const escRecord = {
+      id: escItem._escId,
+      owner: newOwner,
+      status: ESCALATION_STATUS.IN_PROGRESS,
+      expectedCompleteTime: expectedCompleteTime || escItem.expectedCompleteTime,
+      operationLogs,
+      updatedAt: now,
+    };
+    await db.escalations.update(escItem._escId, escRecord);
+    dispatch({ type: 'UPDATE_ESCALATIONS', payload: [escRecord] });
+
+    return true;
+  }, [claimEscalation]);
+
+  const updateEscalationProgress = useCallback(async (escItem, progress, remark = '') => {
+    if (!escItem._escId) return false;
+
+    const now = new Date().toISOString();
+    const operationLogs = addEscalationOperationLog(escItem, '更新进度', escItem.owner || '系统', progress);
+
+    const recordUpdate = {
+      progress,
+      remark: remark || escItem.remark,
+      operationLogs,
+      updatedAt: now,
+    };
+    await db.escalations.update(escItem._escId, recordUpdate);
+    dispatch({ type: 'UPDATE_ESCALATIONS', payload: [{ id: escItem._escId, ...recordUpdate }] });
+
+    return true;
+  }, []);
+
+  const requestEscalationReview = useCallback(async (escItem, completionRemark = '') => {
+    if (!escItem._escId) return false;
+
+    const now = new Date().toISOString();
+    const operationLogs = addEscalationOperationLog(escItem, '申请复核', escItem.owner || '系统', completionRemark || '异常已处理，申请复核');
+
+    const recordUpdate = {
+      status: ESCALATION_STATUS.PENDING_REVIEW,
+      progress: completionRemark || '已完成处理，待复核确认',
+      reviewRequestedAt: now,
+      remark: completionRemark || escItem.remark,
+      operationLogs,
+      updatedAt: now,
+    };
+    await db.escalations.update(escItem._escId, recordUpdate);
+    dispatch({ type: 'UPDATE_ESCALATIONS', payload: [{ id: escItem._escId, ...recordUpdate }] });
+
+    return true;
+  }, []);
+
+  const restoreEscalation = useCallback(async (escItem, reviewRemark = '') => {
+    const now = new Date().toISOString();
+
+    if (escItem.sourceType === ESCALATION_SOURCE_TYPE.MATERIAL) {
+      const material = state.materials.find(m => m.id === escItem.sourceId);
+      if (material) {
+        const matUpdates = {};
+        if (escItem.type === ESCALATION_TYPE.SHORTAGE && material.preparedQty < material.requiredQty) {
+          matUpdates.preparedQty = material.requiredQty;
+          if (material.status === MATERIAL_STATUS.SHORTAGE) {
+            matUpdates.status = MATERIAL_STATUS.READY;
+          }
+        }
+        if (escItem.type === ESCALATION_TYPE.REVIEW && material.status === MATERIAL_STATUS.REVIEW) {
+          matUpdates.status = MATERIAL_STATUS.READY;
+          if (material.preparedQty < material.requiredQty) {
+            matUpdates.preparedQty = material.requiredQty;
+          }
+        }
+        if ((escItem.type === ESCALATION_TYPE.FOLLOW_UP_OVERDUE || escItem.type === ESCALATION_TYPE.FOLLOW_UP_PENDING)
+          && material.followUpStatus !== FOLLOW_UP_STATUS.COMPLETED) {
+          matUpdates.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
+          matUpdates.followUpCompletedAt = now;
+        }
+        if (Object.keys(matUpdates).length > 0) {
+          await db.materials.update(escItem.sourceId, matUpdates);
+          dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: escItem.sourceId, ...matUpdates }] });
+        }
+      }
+    } else if (escItem.sourceType === ESCALATION_SOURCE_TYPE.HANDOVER_ITEM) {
+      const hi = state.handoverItems.find(h => h.id === escItem.sourceId);
+      if (hi && !hi.confirmed) {
+        const hiUpdates = { confirmed: true };
+        await db.handoverItems.update(escItem.sourceId, hiUpdates);
+        dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: escItem.sourceId, ...hiUpdates }] });
+        const handover = state.handovers.find(h => h.id === hi.handoverId);
+        if (handover && handover.status === HANDOVER_STATUS.DRAFT) {
+          await db.handovers.update(hi.handoverId, { status: HANDOVER_STATUS.IN_PROGRESS });
+          dispatch({ type: 'UPDATE_HANDOVER', payload: { id: hi.handoverId, status: HANDOVER_STATUS.IN_PROGRESS } });
+        }
+        const material = state.materials.find(m => m.id === hi.materialId);
+        if (material) {
+          const confQty = hi.confirmedPreparedQty ?? material.preparedQty;
+          const matUpdates = {};
+          if (confQty >= material.requiredQty) {
+            matUpdates.status = MATERIAL_STATUS.READY;
+          } else if (material.status !== MATERIAL_STATUS.SHORTAGE) {
+            matUpdates.status = MATERIAL_STATUS.PREPARING;
+          }
+          if (Object.keys(matUpdates).length > 0) {
+            await db.materials.update(hi.materialId, matUpdates);
+            dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: hi.materialId, ...matUpdates }] });
+          }
+        }
+      }
+    } else if (escItem.sourceType === ESCALATION_SOURCE_TYPE.RECTIFICATION) {
+      const rect = state.rectifications.find(r => r.id === escItem.sourceId);
+      if (rect && rect.status !== RECTIFICATION_STATUS.COMPLETED) {
+        const rectUpdates = {
+          status: RECTIFICATION_STATUS.COMPLETED,
+          completedAt: now,
+          updatedAt: now,
+        };
+        await db.rectifications.update(escItem.sourceId, rectUpdates);
+        dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: escItem.sourceId, ...rectUpdates }] });
+
+        if (rect.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
+          const material = state.materials.find(m => m.id === rect.sourceId);
+          if (material) {
+            const matUpdates = {};
+            if (rect.type === RECTIFICATION_TYPE.SHORTAGE && material.preparedQty < material.requiredQty) {
+              matUpdates.preparedQty = material.requiredQty;
+              if (material.status === MATERIAL_STATUS.SHORTAGE) {
+                matUpdates.status = MATERIAL_STATUS.READY;
+              }
+            }
+            if (rect.type === RECTIFICATION_TYPE.REVIEW && material.status === MATERIAL_STATUS.REVIEW) {
+              matUpdates.status = MATERIAL_STATUS.READY;
+            }
+            if ((rect.type === RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE || rect.type === RECTIFICATION_TYPE.FOLLOW_UP_PENDING)
+              && material.followUpStatus !== FOLLOW_UP_STATUS.COMPLETED) {
+              matUpdates.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
+              matUpdates.followUpCompletedAt = now;
+            }
+            if (Object.keys(matUpdates).length > 0) {
+              await db.materials.update(rect.sourceId, matUpdates);
+              dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rect.sourceId, ...matUpdates }] });
+            }
+          }
+        } else if (rect.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
+          const hi = state.handoverItems.find(h => h.id === rect.sourceId);
+          if (hi && !hi.confirmed) {
+            await db.handoverItems.update(rect.sourceId, { confirmed: true });
+            dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rect.sourceId, confirmed: true }] });
+          }
+        }
+      }
+    }
+
+    const operationLogs = addEscalationOperationLog(escItem, '复核通过', '系统', `复核通过，异常已恢复。${reviewRemark ? `复核意见: ${reviewRemark}` : ''}`);
+
+    if (escItem._escId) {
+      const recordUpdate = {
+        status: ESCALATION_STATUS.RESTORED,
+        restoredAt: now,
+        reviewedAt: now,
+        reviewResult: ESCALATION_REVIEW_RESULT.APPROVED,
+        reviewRemark,
+        operationLogs,
+        updatedAt: now,
+      };
+      await db.escalations.update(escItem._escId, recordUpdate);
+      dispatch({ type: 'UPDATE_ESCALATIONS', payload: [{ id: escItem._escId, ...recordUpdate }] });
+    } else {
+      const escRecord = {
+        sourceType: escItem.sourceType,
+        sourceId: escItem.sourceId,
+        materialId: escItem.materialId,
+        meetingId: escItem.meetingId,
+        roomId: escItem.roomId,
+        type: escItem.type,
+        status: ESCALATION_STATUS.RESTORED,
+        owner: escItem.owner || '',
+        creator: '',
+        progress: escItem.progress || '',
+        remark: escItem.remark || '',
+        expectedCompleteTime: escItem.expectedCompleteTime || '',
+        assignedAt: escItem.assignedAt || now,
+        restoredAt: now,
+        reviewRequestedAt: escItem.reviewRequestedAt || now,
+        reviewedAt: now,
+        reviewResult: ESCALATION_REVIEW_RESULT.APPROVED,
+        reviewRemark,
+        returnedReason: '',
+        createdAt: now,
+        updatedAt: now,
+        operationLogs,
+      };
+      const id = await db.escalations.add(escRecord);
+      escRecord.id = id;
+      dispatch({ type: 'ADD_ESCALATIONS', payload: [escRecord] });
+    }
+
+    return true;
+  }, [state.materials, state.handoverItems, state.handovers, state.rectifications]);
+
+  const returnEscalationForRework = useCallback(async (escItem, returnReason) => {
+    if (!escItem._escId) return false;
+
+    const now = new Date().toISOString();
+    const operationLogs = addEscalationOperationLog(escItem, '退回重处理', '系统', `退回原因: ${returnReason}`);
+
+    const recordUpdate = {
+      status: ESCALATION_STATUS.IN_PROGRESS,
+      returnedReason: returnReason,
+      reviewResult: ESCALATION_REVIEW_RESULT.REJECTED,
+      reviewRemark: returnReason,
+      operationLogs,
+      updatedAt: now,
+    };
+    await db.escalations.update(escItem._escId, recordUpdate);
+    dispatch({ type: 'UPDATE_ESCALATIONS', payload: [{ id: escItem._escId, ...recordUpdate }] });
+
+    return true;
+  }, []);
+
+  const closeEscalation = useCallback(async (escItem, closeRemark = '') => {
+    if (!escItem._escId) return false;
+
+    const now = new Date().toISOString();
+    const operationLogs = addEscalationOperationLog(escItem, '闭环', '系统', `异常已闭环。${closeRemark ? `备注: ${closeRemark}` : ''}`);
+
+    const recordUpdate = {
+      status: ESCALATION_STATUS.CLOSED,
+      restoredAt: escItem.restoredAt || now,
+      reviewedAt: escItem.reviewedAt || now,
+      reviewResult: escItem.reviewResult || ESCALATION_REVIEW_RESULT.APPROVED,
+      reviewRemark: closeRemark || escItem.reviewRemark,
+      operationLogs,
+      updatedAt: now,
+    };
+    await db.escalations.update(escItem._escId, recordUpdate);
+    dispatch({ type: 'UPDATE_ESCALATIONS', payload: [{ id: escItem._escId, ...recordUpdate }] });
+
+    return true;
+  }, []);
+
+  const createEscalationFromTask = useCallback(async (task) => {
+    const now = new Date().toISOString();
+
+    let type;
+    let sourceType;
+    let sourceId;
+    let materialId = task.materialId;
+    let meetingId = task.meetingId;
+    let roomId = task.roomId;
+
+    switch (task.sourceType) {
+      case TASK_SOURCE_TYPE.MATERIAL_SHORTAGE:
+        type = ESCALATION_TYPE.SHORTAGE;
+        sourceType = ESCALATION_SOURCE_TYPE.MATERIAL;
+        sourceId = task.materialId;
+        break;
+      case TASK_SOURCE_TYPE.REVIEW_REQUIRED:
+        type = ESCALATION_TYPE.REVIEW;
+        sourceType = ESCALATION_SOURCE_TYPE.MATERIAL;
+        sourceId = task.materialId;
+        break;
+      case TASK_SOURCE_TYPE.FOLLOW_UP_OVERDUE:
+        type = ESCALATION_TYPE.FOLLOW_UP_OVERDUE;
+        sourceType = ESCALATION_SOURCE_TYPE.MATERIAL;
+        sourceId = task.materialId;
+        break;
+      case TASK_SOURCE_TYPE.FOLLOW_UP_PENDING:
+        type = ESCALATION_TYPE.FOLLOW_UP_PENDING;
+        sourceType = ESCALATION_SOURCE_TYPE.MATERIAL;
+        sourceId = task.materialId;
+        break;
+      case TASK_SOURCE_TYPE.HANDOVER_INCOMPLETE:
+        type = ESCALATION_TYPE.HANDOVER_INCOMPLETE;
+        sourceType = ESCALATION_SOURCE_TYPE.HANDOVER_ITEM;
+        sourceId = task.handoverItemId;
+        break;
+      case TASK_SOURCE_TYPE.RECTIFICATION_PENDING:
+      case TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS:
+        type = ESCALATION_TYPE.RECTIFICATION_STAGNANT;
+        sourceType = ESCALATION_SOURCE_TYPE.RECTIFICATION;
+        sourceId = task.rectificationId;
+        break;
+      default:
+        type = ESCALATION_TYPE.SHORTAGE;
+        sourceType = ESCALATION_SOURCE_TYPE.MANUAL;
+        sourceId = task.id;
+    }
+
+    const existingEsc = state.escalations.find(e =>
+      e.sourceType === sourceType && e.sourceId === sourceId && e.type === type &&
+      e.status !== ESCALATION_STATUS.CLOSED && e.status !== ESCALATION_STATUS.RESTORED
+    );
+
+    if (existingEsc) {
+      dispatch({ type: 'OPEN_ESCALATION_MODAL', payload: { id: existingEsc.id } });
+      return false;
+    }
+
+    const operationLogs = addEscalationOperationLog({}, '创建升级', task.owner || '系统', '从任务升级为异常事项');
+
+    const escRecord = {
+      sourceType,
+      sourceId,
+      materialId,
+      meetingId,
+      roomId,
+      type,
+      status: ESCALATION_STATUS.PENDING_CLAIM,
+      owner: task.owner || '',
+      creator: '',
+      progress: task.progress || '',
+      remark: task.description || '',
+      expectedCompleteTime: task.dueTime || '',
+      assignedAt: '',
+      restoredAt: '',
+      reviewRequestedAt: '',
+      reviewedAt: '',
+      reviewResult: '',
+      reviewRemark: '',
+      returnedReason: '',
+      createdAt: now,
+      updatedAt: now,
+      operationLogs,
+    };
+
+    const id = await db.escalations.add(escRecord);
+    escRecord.id = id;
+    dispatch({ type: 'ADD_ESCALATIONS', payload: [escRecord] });
+    dispatch({ type: 'OPEN_ESCALATION_MODAL', payload: { id } });
+
+    return true;
+  }, [state.escalations]);
+
   const selectedTask = useMemo(() => {
     if (!state.selectedTaskId) return null;
     return preMeetingTasks.find(t => t.id === state.selectedTaskId) || null;
@@ -2223,6 +3157,19 @@ export function AppProvider({ children }) {
     completeRectification,
     confirmRectificationCompleted,
     returnRectificationForReview,
+    escalationItems,
+    filteredEscalationItems,
+    escalationSummary,
+    groupedEscalations,
+    selectedEscalation,
+    claimEscalation,
+    reassignEscalation,
+    updateEscalationProgress,
+    requestEscalationReview,
+    restoreEscalation,
+    returnEscalationForRework,
+    closeEscalation,
+    createEscalationFromTask,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { useApp, GROUP_BY } from '../context/AppContext';
+import { useApp, GROUP_BY, RISK_VIEW, ESCALATION_GROUP_BY } from '../context/AppContext';
 import {
   STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS, HANDOVER_SOURCE_TYPE,
   FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_LABELS, FOLLOW_UP_STATUS_COLORS,
-  getFollowUpStatus,
+  getFollowUpStatus, ESCALATION_STATUS,
 } from '../db';
 import AddMaterialModal from './AddMaterialModal';
 import MoveMaterialModal from './MoveMaterialModal';
@@ -20,6 +20,7 @@ export default function GroupedTable() {
     markFollowUpCompleted,
     deleteMaterials,
     filteredMaterials,
+    escalationItems,
   } = useApp();
 
   const { groupBy, selectedMaterialIds, categories, meetings, rooms, reviewMode } = state;
@@ -72,6 +73,25 @@ export default function GroupedTable() {
   const getCategoryInfo = (catId) => categories.find(c => c.id === catId) || { name: '', icon: '📦' };
   const getRoomInfo = (roomId) => rooms.find(r => r.id === roomId) || { name: '未知' };
   const getMeetingInfo = (meetingId) => meetings.find(m => m.id === meetingId);
+
+  const getMaterialActiveEscalations = useCallback((materialId) => {
+    return escalationItems.filter(e => 
+      e.materialId === materialId && 
+      e.status !== ESCALATION_STATUS.CLOSED && 
+      e.status !== ESCALATION_STATUS.RESTORED
+    );
+  }, [escalationItems]);
+
+  const hasActiveEscalation = useCallback((materialId) => {
+    return getMaterialActiveEscalations(materialId).length > 0;
+  }, [getMaterialActiveEscalations]);
+
+  const handleViewEscalation = (materialId, e) => {
+    e.stopPropagation();
+    dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.ESCALATION_POOL });
+    dispatch({ type: 'SET_ESCALATION_GROUP_BY', payload: ESCALATION_GROUP_BY.MEETING });
+    dispatch({ type: 'SET_SELECTED_ESCALATION_QUERY', payload: { materialId } });
+  };
 
   const computeGroupStats = (items) => {
     const total = items.length;
@@ -466,10 +486,12 @@ export default function GroupedTable() {
                       const meeting = getMeetingInfo(material.meetingId);
                       const isShortage = material.preparedQty < material.requiredQty;
                       const selected = selectedMaterialIds.includes(material.id);
+                      const activeEscalations = getMaterialActiveEscalations(material.id);
+                      const hasEscalation = activeEscalations.length > 0;
                       return (
                         <tr
                           key={material.id}
-                          className={selected ? 'selected' : ''}
+                          className={`${selected ? 'selected' : ''} ${hasEscalation ? 'material-row-with-escalation' : ''}`}
                           onClick={(e) => handleRowClick(material, e)}
                           style={{ cursor: 'pointer' }}
                         >

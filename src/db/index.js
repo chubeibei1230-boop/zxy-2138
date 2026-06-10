@@ -39,6 +39,17 @@ db.version(5).stores({
   rectifications: '++id, sourceType, sourceId, materialId, meetingId, roomId, type, status, owner, creator, progress, remark, dueTime, assignedAt, completedAt, returnedReason, createdAt, updatedAt',
 });
 
+db.version(7).stores({
+  rooms: '++id, name, capacity',
+  categories: '++id, name, icon',
+  meetings: '++id, title, date, batch, roomId, personInCharge, timeSlot, status',
+  materials: '++id, meetingId, categoryId, name, requiredQty, preparedQty, shortageNote, status, roomId, personInCharge, batch, followUp, handoverRemark, followUpStatus, followUpNote, followUpOwner, followUpDueTime, followUpCompletedAt, rectificationStatus, rectificationOwner, rectificationProgress, rectificationRemark, rectificationAssignedAt, rectificationCompletedAt, rectificationReturnedReason',
+  handovers: '++id, title, createdAt, handoverTime, handoverPerson, receiverPerson, remark, status, sourceType, materialCount',
+  handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty, followUpStatus, followUpNote, followUpOwner, followUpDueTime, rectificationStatus, rectificationOwner, rectificationProgress, rectificationRemark, rectificationAssignedAt, rectificationCompletedAt, rectificationReturnedReason',
+  rectifications: '++id, sourceType, sourceId, materialId, meetingId, roomId, type, status, owner, creator, progress, remark, dueTime, assignedAt, completedAt, returnedReason, createdAt, updatedAt',
+  escalations: '++id, sourceType, sourceId, materialId, meetingId, roomId, type, status, owner, creator, progress, remark, dueTime, expectedCompleteTime, assignedAt, restoredAt, reviewRequestedAt, reviewedAt, reviewResult, reviewRemark, returnedReason, closedAt, createdAt, updatedAt, operationLogs',
+});
+
 export function getLocalDatetimeLocal() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -324,6 +335,10 @@ export async function seedDatabase() {
     tomorrow.setDate(today.getDate() + 1);
     const dayAfter = new Date(today);
     dayAfter.setDate(today.getDate() + 2);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const threeDaysAgo = new Date(today);
+    threeDaysAgo.setDate(today.getDate() - 3);
 
     const formatDate = (d) => d.toISOString().split('T')[0];
 
@@ -438,5 +453,343 @@ export async function seedDatabase() {
     });
 
     await db.materials.bulkAdd(materials);
+
+    const allMaterials = await db.materials.toArray();
+    const allMeetings = await db.meetings.toArray();
+    const allRooms = await db.rooms.toArray();
+
+    const now = today;
+    const twoDaysLater = dayAfter;
+
+    const toLocal = (d) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const shortageMaterial = allMaterials.find(m => m.status === MATERIAL_STATUS.SHORTAGE);
+    const reviewMaterial = allMaterials.find(m => m.status === MATERIAL_STATUS.REVIEW);
+    const pendingMaterial = allMaterials.find(m => m.status === MATERIAL_STATUS.PENDING || m.status === MATERIAL_STATUS.PREPARING);
+    const readyMaterial = allMaterials.find(m => m.status === MATERIAL_STATUS.READY);
+
+    const meeting1 = allMeetings[0];
+    const meeting2 = allMeetings[1];
+    const meeting3 = allMeetings[2];
+
+    const makeLogs = (logs) => logs.map((l, i) => ({
+      id: Date.now() + i,
+      action: l.action,
+      operator: l.operator,
+      remark: l.remark || '',
+      timestamp: toLocal(l.time || now),
+    }));
+
+    const escalations = [];
+
+    if (shortageMaterial) {
+      escalations.push({
+        sourceType: ESCALATION_SOURCE_TYPE.MATERIAL,
+        sourceId: shortageMaterial.id,
+        materialId: shortageMaterial.id,
+        meetingId: shortageMaterial.meetingId,
+        roomId: shortageMaterial.roomId,
+        type: ESCALATION_TYPE.SHORTAGE,
+        status: ESCALATION_STATUS.PENDING_CLAIM,
+        owner: null,
+        creator: '系统自动检测',
+        progress: '',
+        remark: shortageMaterial.shortageNote || `物料 ${shortageMaterial.name} 存在短缺，需尽快补充`,
+        dueTime: toLocal(tomorrow),
+        expectedCompleteTime: null,
+        assignedAt: null,
+        restoredAt: null,
+        reviewRequestedAt: null,
+        reviewedAt: null,
+        reviewResult: null,
+        reviewRemark: null,
+        returnedReason: null,
+        closedAt: null,
+        createdAt: toLocal(now),
+        updatedAt: toLocal(now),
+        operationLogs: makeLogs([
+          { action: 'created', operator: '系统', remark: '自动检测：物料短缺', time: now },
+        ]),
+      });
+    }
+
+    if (reviewMaterial) {
+      escalations.push({
+        sourceType: ESCALATION_SOURCE_TYPE.MATERIAL,
+        sourceId: reviewMaterial.id,
+        materialId: reviewMaterial.id,
+        meetingId: reviewMaterial.meetingId,
+        roomId: reviewMaterial.roomId,
+        type: ESCALATION_TYPE.REVIEW,
+        status: ESCALATION_STATUS.IN_PROGRESS,
+        owner: '李娜',
+        creator: '系统自动检测',
+        progress: '已与仓库沟通确认，预计明天到货后重新点数',
+        remark: `物料 ${reviewMaterial.name} 状态为需复核，请相关人员尽快处理`,
+        dueTime: toLocal(tomorrow),
+        expectedCompleteTime: toLocal(tomorrow),
+        assignedAt: toLocal(now),
+        restoredAt: null,
+        reviewRequestedAt: null,
+        reviewedAt: null,
+        reviewResult: null,
+        reviewRemark: null,
+        returnedReason: null,
+        closedAt: null,
+        createdAt: toLocal(yesterday),
+        updatedAt: toLocal(now),
+        operationLogs: makeLogs([
+          { action: 'created', operator: '系统', remark: '自动检测：物料需复核', time: yesterday },
+          { action: 'claimed', operator: '李娜', remark: '主动认领，正在跟进', time: now },
+        ]),
+      });
+    }
+
+    if (pendingMaterial) {
+      escalations.push({
+        sourceType: ESCALATION_SOURCE_TYPE.MATERIAL,
+        sourceId: pendingMaterial.id,
+        materialId: pendingMaterial.id,
+        meetingId: pendingMaterial.meetingId,
+        roomId: pendingMaterial.roomId,
+        type: ESCALATION_TYPE.FOLLOW_UP_OVERDUE,
+        status: ESCALATION_STATUS.PENDING_REVIEW,
+        owner: '张伟',
+        creator: '系统自动检测',
+        progress: '已完成物料补充，申请复核确认',
+        remark: `物料 ${pendingMaterial.name} 跟进事项已超过预期完成时间`,
+        dueTime: toLocal(yesterday),
+        expectedCompleteTime: toLocal(yesterday),
+        assignedAt: toLocal(threeDaysAgo),
+        restoredAt: null,
+        reviewRequestedAt: toLocal(now),
+        reviewedAt: null,
+        reviewResult: null,
+        reviewRemark: null,
+        returnedReason: null,
+        closedAt: null,
+        createdAt: toLocal(threeDaysAgo),
+        updatedAt: toLocal(now),
+        operationLogs: makeLogs([
+          { action: 'created', operator: '系统', remark: '自动检测：逾期跟进', time: threeDaysAgo },
+          { action: 'claimed', operator: '张伟', remark: '认领处理，联系供应商', time: threeDaysAgo },
+          { action: 'progress', operator: '张伟', remark: '供应商承诺昨天送达', time: yesterday },
+          { action: 'requested_review', operator: '张伟', remark: '物料已到位，申请复核', time: now },
+        ]),
+      });
+    }
+
+    if (meeting2 && allMaterials.filter(m => m.meetingId === meeting2.id).length > 0) {
+      const m2 = allMaterials.find(m => m.meetingId === meeting2.id);
+      escalations.push({
+        sourceType: ESCALATION_SOURCE_TYPE.HANDOVER_ITEM,
+        sourceId: meeting2.id,
+        materialId: m2?.id,
+        meetingId: meeting2.id,
+        roomId: meeting2.roomId,
+        type: ESCALATION_TYPE.HANDOVER_INCOMPLETE,
+        status: ESCALATION_STATUS.IN_PROGRESS,
+        owner: '王芳',
+        creator: '系统自动检测',
+        progress: '已联系接收人，约定今天下午14点完成交接确认',
+        remark: '会议交接事项未完成，存在交接遗漏风险',
+        dueTime: toLocal(now),
+        expectedCompleteTime: toLocal(now),
+        assignedAt: toLocal(yesterday),
+        restoredAt: null,
+        reviewRequestedAt: null,
+        reviewedAt: null,
+        reviewResult: null,
+        reviewRemark: null,
+        returnedReason: null,
+        closedAt: null,
+        createdAt: toLocal(yesterday),
+        updatedAt: toLocal(now),
+        operationLogs: makeLogs([
+          { action: 'created', operator: '系统', remark: '自动检测：交接未完成', time: yesterday },
+          { action: 'claimed', operator: '王芳', remark: '认领，跟进交接进度', time: yesterday },
+        ]),
+      });
+    }
+
+    if (meeting1 && allMaterials.filter(m => m.meetingId === meeting1.id).length > 1) {
+      const m3 = allMaterials.filter(m => m.meetingId === meeting1.id)[1];
+      escalations.push({
+        sourceType: ESCALATION_SOURCE_TYPE.RECTIFICATION,
+        sourceId: m3.id,
+        materialId: m3.id,
+        meetingId: meeting1.id,
+        roomId: meeting1.roomId,
+        type: ESCALATION_TYPE.RECTIFICATION_STAGNANT,
+        status: ESCALATION_STATUS.RESTORED,
+        owner: '刘敏',
+        creator: '系统自动检测',
+        progress: '整改事项已全部完成，经复核确认恢复正常',
+        remark: '整改事项超过3天未推进，请确认是否已处理完毕',
+        dueTime: toLocal(threeDaysAgo),
+        expectedCompleteTime: toLocal(yesterday),
+        assignedAt: toLocal(threeDaysAgo),
+        restoredAt: toLocal(now),
+        reviewRequestedAt: toLocal(yesterday),
+        reviewedAt: toLocal(now),
+        reviewResult: ESCALATION_REVIEW_RESULT.APPROVED,
+        reviewRemark: '整改完成，确认恢复',
+        returnedReason: null,
+        closedAt: null,
+        createdAt: toLocal(threeDaysAgo),
+        updatedAt: toLocal(now),
+        operationLogs: makeLogs([
+          { action: 'created', operator: '系统', remark: '自动检测：整改停滞', time: threeDaysAgo },
+          { action: 'claimed', operator: '刘敏', remark: '认领处理', time: threeDaysAgo },
+          { action: 'progress', operator: '刘敏', remark: '正在逐项整改中', time: yesterday },
+          { action: 'requested_review', operator: '刘敏', remark: '整改完成，申请复核', time: yesterday },
+          { action: 'restored', operator: '张伟', remark: '复核通过，恢复正常', time: now },
+        ]),
+      });
+    }
+
+    if (readyMaterial) {
+      escalations.push({
+        sourceType: ESCALATION_SOURCE_TYPE.MATERIAL,
+        sourceId: readyMaterial.id,
+        materialId: readyMaterial.id,
+        meetingId: readyMaterial.meetingId,
+        roomId: readyMaterial.roomId,
+        type: ESCALATION_TYPE.FOLLOW_UP_PENDING,
+        status: ESCALATION_STATUS.CLOSED,
+        owner: '赵强',
+        creator: '系统自动检测',
+        progress: '事项已闭环',
+        remark: '历史异常：存在待跟进事项，现已处理完成',
+        dueTime: toLocal(threeDaysAgo),
+        expectedCompleteTime: toLocal(yesterday),
+        assignedAt: toLocal(threeDaysAgo),
+        restoredAt: toLocal(yesterday),
+        reviewRequestedAt: toLocal(yesterday),
+        reviewedAt: toLocal(yesterday),
+        reviewResult: ESCALATION_REVIEW_RESULT.APPROVED,
+        reviewRemark: '处理完毕，确认恢复',
+        returnedReason: null,
+        closedAt: toLocal(now),
+        createdAt: toLocal(threeDaysAgo),
+        updatedAt: toLocal(now),
+        operationLogs: makeLogs([
+          { action: 'created', operator: '系统', remark: '自动检测：待跟进事项', time: threeDaysAgo },
+          { action: 'claimed', operator: '赵强', remark: '认领跟进', time: threeDaysAgo },
+          { action: 'restored', operator: '系统', remark: '处理完成', time: yesterday },
+          { action: 'closed', operator: '张伟', remark: '确认闭环', time: now },
+        ]),
+      });
+    }
+
+    if (escalations.length > 0) {
+      await db.escalations.bulkAdd(escalations);
+    }
   }
+}
+
+export const ESCALATION_TYPE = {
+  SHORTAGE: 'shortage',
+  REVIEW: 'review',
+  FOLLOW_UP_PENDING: 'follow_up_pending',
+  FOLLOW_UP_OVERDUE: 'follow_up_overdue',
+  HANDOVER_INCOMPLETE: 'handover_incomplete',
+  RECTIFICATION_STAGNANT: 'rectification_stagnant',
+};
+
+export const ESCALATION_TYPE_LABELS = {
+  shortage: '物料短缺',
+  review: '需复核',
+  follow_up_pending: '待跟进',
+  follow_up_overdue: '逾期跟进',
+  handover_incomplete: '交接未完成',
+  rectification_stagnant: '整改停滞',
+};
+
+export const ESCALATION_TYPE_COLORS = {
+  shortage: '#ef4444',
+  review: '#8b5cf6',
+  follow_up_pending: '#f59e0b',
+  follow_up_overdue: '#dc2626',
+  handover_incomplete: '#7c3aed',
+  rectification_stagnant: '#ea580c',
+};
+
+export const ESCALATION_TYPE_ICONS = {
+  shortage: '📦',
+  review: '🔍',
+  follow_up_pending: '⏩',
+  follow_up_overdue: '⏰',
+  handover_incomplete: '🤝',
+  rectification_stagnant: '⚠️',
+};
+
+export const ESCALATION_STATUS = {
+  PENDING_CLAIM: 'pending_claim',
+  IN_PROGRESS: 'in_progress',
+  PENDING_REVIEW: 'pending_review',
+  RESTORED: 'restored',
+  CLOSED: 'closed',
+};
+
+export const ESCALATION_STATUS_LABELS = {
+  pending_claim: '待认领',
+  in_progress: '处理中',
+  pending_review: '待复核',
+  restored: '已恢复',
+  closed: '已闭环',
+};
+
+export const ESCALATION_STATUS_COLORS = {
+  pending_claim: '#94a3b8',
+  in_progress: '#3b82f6',
+  pending_review: '#f59e0b',
+  restored: '#10b981',
+  closed: '#64748b',
+};
+
+export const ESCALATION_SOURCE_TYPE = {
+  MATERIAL: 'material',
+  HANDOVER_ITEM: 'handover_item',
+  RECTIFICATION: 'rectification',
+  MANUAL: 'manual',
+};
+
+export const ESCALATION_SOURCE_TYPE_LABELS = {
+  material: '物料异常',
+  handover_item: '交接异常',
+  rectification: '整改异常',
+  manual: '手动创建',
+};
+
+export const ESCALATION_REVIEW_RESULT = {
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+};
+
+export const ESCALATION_REVIEW_RESULT_LABELS = {
+  approved: '复核通过',
+  rejected: '需重新处理',
+};
+
+export function isEscalationOverdue(escalation) {
+  if (!escalation.expectedCompleteTime) return false;
+  const now = new Date();
+  const due = new Date(escalation.expectedCompleteTime);
+  return now > due && escalation.status !== ESCALATION_STATUS.RESTORED && escalation.status !== ESCALATION_STATUS.CLOSED;
+}
+
+export function addEscalationOperationLog(escalation, action, operator, remark = '') {
+  const log = {
+    id: Date.now(),
+    action,
+    operator,
+    remark,
+    timestamp: new Date().toISOString(),
+  };
+  const logs = escalation.operationLogs || [];
+  return [...logs, log];
 }

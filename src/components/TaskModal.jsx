@@ -22,7 +22,7 @@ export default function TaskModal() {
   const {
     state, dispatch, selectedTask,
     claimTask, updateTaskProgress, completeTask,
-    preMeetingTasks,
+    preMeetingTasks, createEscalationFromTask,
   } = useApp();
   const { showTaskModal, materials, meetings, handovers } = state;
 
@@ -32,9 +32,11 @@ export default function TaskModal() {
     progress: '',
     remark: '',
     completionRemark: '',
+    escalationRemark: '',
   });
 
   const [activeTab, setActiveTab] = useState('detail');
+  const [showEscalateForm, setShowEscalateForm] = useState(false);
 
   const task = selectedTask;
 
@@ -107,6 +109,19 @@ export default function TaskModal() {
     if (success) {
       alert('任务已完成，相关状态已同步更新！');
       handleClose();
+    }
+  };
+
+  const handleEscalate = async () => {
+    if (!confirm('确认将该任务升级为异常？升级后将进入异常升级池进行统一管理。')) return;
+    try {
+      const escalation = await createEscalationFromTask(task, formData.escalationRemark.trim());
+      if (escalation) {
+        alert('任务已成功升级为异常，请在异常升级池中查看和处理！');
+        handleClose();
+      }
+    } catch (err) {
+      alert('升级失败：' + err.message);
     }
   };
 

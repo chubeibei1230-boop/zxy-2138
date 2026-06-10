@@ -11,9 +11,12 @@ import RectificationCenter from './components/RectificationCenter';
 import RectificationModal from './components/RectificationModal';
 import PreMeetingTaskList from './components/PreMeetingTaskList';
 import TaskModal from './components/TaskModal';
+import EscalationPool from './components/EscalationPool';
+import EscalationModal from './components/EscalationModal';
+import EscalationSummary from './components/EscalationSummary';
 
 function AppContent() {
-  const { state, dispatch, riskAnalysis, rectificationSummary, preMeetingTaskSummary } = useApp();
+  const { state, dispatch, riskAnalysis, rectificationSummary, preMeetingTaskSummary, escalationSummary } = useApp();
   const { loading, reviewMode, currentView } = state;
 
   if (loading) {
@@ -53,6 +56,19 @@ function AppContent() {
         <HandoverModal />
         <RectificationModal />
         <TaskModal />
+        <EscalationModal />
+      </div>
+    );
+  }
+
+  if (currentView === RISK_VIEW.ESCALATION_POOL) {
+    return (
+      <div className="app-container">
+        <EscalationPool />
+        <HandoverModal />
+        <RectificationModal />
+        <TaskModal />
+        <EscalationModal />
       </div>
     );
   }
@@ -62,6 +78,9 @@ function AppContent() {
   const rectInProgressCount = rectificationSummary?.byStatus?.in_progress || 0;
   const taskPendingCount = preMeetingTaskSummary?.pending || 0;
   const taskOverdueCount = preMeetingTaskSummary?.overdue || 0;
+  const escPendingCount = escalationSummary?.pendingClaimCount || 0;
+  const escInProgressCount = escalationSummary?.inProgressCount || 0;
+  const escPendingReviewCount = escalationSummary?.pendingReviewCount || 0;
 
   return (
     <div className="app-container">
@@ -71,6 +90,35 @@ function AppContent() {
           会议物料分组准备
         </div>
         <div className="header-actions">
+          <button
+            className="btn"
+            style={{
+              background: (escPendingCount + escInProgressCount + escPendingReviewCount) > 0
+                ? 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
+                : '#f1f5f9',
+              color: (escPendingCount + escInProgressCount + escPendingReviewCount) > 0 ? '#fff' : '#475569',
+              border: (escPendingCount + escInProgressCount + escPendingReviewCount) > 0 ? 'none' : '1px solid #e2e8f0',
+            }}
+            onClick={() => dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.ESCALATION_POOL })}
+            title="会前异常升级闭环池，统一管理所有异常升级事项"
+          >
+            🚨 异常升级
+            {(escPendingCount + escInProgressCount + escPendingReviewCount) > 0 && (
+              <span
+                style={{
+                  marginLeft: '6px',
+                  padding: '1px 8px',
+                  borderRadius: '10px',
+                  background: (escPendingCount + escInProgressCount + escPendingReviewCount) > 0 ? 'rgba(255,255,255,0.25)' : '#fee2e2',
+                  color: (escPendingCount + escInProgressCount + escPendingReviewCount) > 0 ? '#fff' : '#dc2626',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                }}
+              >
+                {escPendingCount + escInProgressCount + escPendingReviewCount}
+              </span>
+            )}
+          </button>
           <button
             className="btn"
             style={{
@@ -170,6 +218,8 @@ function AppContent() {
 
       <SummaryPanel />
 
+      <EscalationSummary />
+
       <HandoverEntry />
 
       <GroupedTable />
@@ -179,6 +229,7 @@ function AppContent() {
       <HandoverModal />
       <RectificationModal />
       <TaskModal />
+      <EscalationModal />
     </div>
   );
 }
