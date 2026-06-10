@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE, RECTIFICATION_TYPE, RECTIFICATION_STATUS, RECTIFICATION_SOURCE_TYPE } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE, RECTIFICATION_TYPE, RECTIFICATION_STATUS, RECTIFICATION_SOURCE_TYPE, TASK_SOURCE_TYPE, TASK_STATUS, isTaskOverdue } from '../db';
 
 const AppContext = createContext(null);
 
@@ -13,6 +13,7 @@ export const RISK_VIEW = {
   MAIN: 'main',
   DASHBOARD: 'dashboard',
   RECTIFICATION: 'rectification',
+  TASK_LIST: 'task_list',
 };
 
 export const RECTIFICATION_GROUP_BY = {
@@ -71,6 +72,19 @@ const initialState = {
   selectedRectificationQuery: null,
   showRectificationModal: false,
   rectificationMobileDetailExpanded: false,
+  taskFilters: {
+    dateRange: { start: '', end: '' },
+    roomIds: [],
+    meetingIds: [],
+    personInCharges: [],
+    riskLevels: [],
+    sourceTypes: [],
+    statuses: [],
+  },
+  selectedTaskId: null,
+  showTaskModal: false,
+  taskMobileDetailExpanded: false,
+  taskGroupBy: 'meeting',
 };
 
 function appReducer(state, action) {
@@ -248,6 +262,22 @@ function appReducer(state, action) {
       return { ...state, showRectificationModal: false };
     case 'SET_SELECTED_RECTIFICATION_QUERY':
       return { ...state, selectedRectificationQuery: action.payload };
+    case 'SET_TASK_FILTERS':
+      return {
+        ...state,
+        taskFilters: { ...state.taskFilters, ...action.payload },
+        selectedTaskId: null,
+      };
+    case 'SET_SELECTED_TASK':
+      return { ...state, selectedTaskId: action.payload, taskMobileDetailExpanded: true };
+    case 'TOGGLE_TASK_MOBILE_DETAIL':
+      return { ...state, taskMobileDetailExpanded: !state.taskMobileDetailExpanded };
+    case 'OPEN_TASK_MODAL':
+      return { ...state, showTaskModal: true, selectedTaskId: action.payload?.id ?? state.selectedTaskId };
+    case 'CLOSE_TASK_MODAL':
+      return { ...state, showTaskModal: false };
+    case 'SET_TASK_GROUP_BY':
+      return { ...state, taskGroupBy: action.payload };
     default:
       return state;
   }
@@ -1529,6 +1559,554 @@ export function AppProvider({ children }) {
     dispatch({ type: 'SET_SELECTED_RECTIFICATION_QUERY', payload: null });
   }, [rectificationItems, state.selectedRectificationQuery]);
 
+  const preMeetingTasks = useMemo(() => {
+    const tasks = [];
+    const meetingsMap = new Map();
+    const roomsMap = new Map();
+    const categoriesMap = new Map();
+
+    state.meetings.forEach(m => meetingsMap.set(m.id, m));
+    state.rooms.forEach(r => roomsMap.set(r.id, r));
+    state.categories.forEach(c => categoriesMap.set(c.id, c));
+
+    state.materials.forEach(material => {
+      const meeting = meetingsMap.get(material.meetingId);
+      const room = roomsMap.get(material.roomId);
+      const category = categoriesMap.get(material.categoryId);
+      const fStatus = getFollowUpStatus(material);
+      const isShortage = material.preparedQty < material.requiredQty || material.status === MATERIAL_STATUS.SHORTAGE;
+
+      const baseTask = {
+        materialId: material.id,
+        material,
+        meetingId: material.meetingId,
+        meeting,
+        roomId: material.roomId,
+        room,
+        category,
+        title: material.name,
+        personInCharge: material.personInCharge || meeting?.personInCharge || '',
+        createdAt: material.createdAt || new Date().toISOString(),
+      };
+
+      if (material.status !== MATERIAL_STATUS.READY && !isShortage) {
+        const taskStatus = material.status === MATERIAL_STATUS.PREPARING ? TASK_STATUS.IN_PROGRESS : TASK_STATUS.PENDING;
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_prep`,
+          sourceType: TASK_SOURCE_TYPE.MATERIAL_PREPARATION,
+          status: taskStatus,
+          description: `${category?.name || ''} - ${material.name}，需求${material.requiredQty}件，已备${material.preparedQty}件`,
+          progress: material.status === MATERIAL_STATUS.PREPARING ? '准备中' : '待准备',
+          dueTime: meeting ? `${meeting.date}T${meeting.timeSlot?.split('-')[0] || '09:00'}` : '',
+          priority: isTaskOverdue({ dueTime: meeting ? `${meeting.date}T${meeting.timeSlot?.split('-')[0] || '09:00'}` : '' }) ? 'high' : 'medium',
+          owner: material.personInCharge || '',
+          remark: '',
+        });
+      }
+
+      if (isShortage) {
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_shortage`,
+          sourceType: TASK_SOURCE_TYPE.MATERIAL_SHORTAGE,
+          status: TASK_STATUS.PENDING,
+          description: `${category?.name || ''} - ${material.name}，需求${material.requiredQty}件，缺${Math.max(0, material.requiredQty - material.preparedQty)}件`,
+          progress: material.shortageNote || '待补充',
+          dueTime: meeting ? `${meeting.date}T${meeting.timeSlot?.split('-')[0] || '09:00'}` : '',
+          priority: 'high',
+          owner: material.personInCharge || '',
+          remark: material.shortageNote || '',
+        });
+      }
+
+      if (fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_f_overdue`,
+          sourceType: TASK_SOURCE_TYPE.FOLLOW_UP_OVERDUE,
+          status: TASK_STATUS.IN_PROGRESS,
+          description: `${category?.name || ''} - ${material.name}，跟进事项已逾期`,
+          progress: material.followUpNote || '待跟进',
+          dueTime: material.followUpDueTime || '',
+          priority: 'high',
+          owner: material.followUpOwner || material.personInCharge || '',
+          remark: material.followUpNote || '',
+        });
+      } else if (fStatus === FOLLOW_UP_STATUS.PENDING) {
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_f_pending`,
+          sourceType: TASK_SOURCE_TYPE.FOLLOW_UP_PENDING,
+          status: TASK_STATUS.PENDING,
+          description: `${category?.name || ''} - ${material.name}，有待跟进事项`,
+          progress: material.followUpNote || '待跟进',
+          dueTime: material.followUpDueTime || '',
+          priority: isTaskOverdue({ dueTime: material.followUpDueTime }) ? 'high' : 'medium',
+          owner: material.followUpOwner || material.personInCharge || '',
+          remark: material.followUpNote || '',
+        });
+      }
+
+      if (material.status === MATERIAL_STATUS.REVIEW) {
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_review`,
+          sourceType: TASK_SOURCE_TYPE.REVIEW_REQUIRED,
+          status: TASK_STATUS.PENDING,
+          description: `${category?.name || ''} - ${material.name}，需要复核确认`,
+          progress: '待复核',
+          dueTime: meeting ? `${meeting.date}T${meeting.timeSlot?.split('-')[0] || '09:00'}` : '',
+          priority: 'medium',
+          owner: material.personInCharge || '',
+          remark: '',
+        });
+      }
+    });
+
+    state.handoverItems.forEach(hi => {
+      if (hi.confirmed) return;
+      const handover = state.handovers.find(h => h.id === hi.handoverId);
+      if (!handover || handover.status === HANDOVER_STATUS.COMPLETED || handover.status === HANDOVER_STATUS.ARCHIVED) return;
+
+      const material = state.materials.find(m => m.id === hi.materialId);
+      if (!material) return;
+      const meeting = meetingsMap.get(material.meetingId);
+      const room = roomsMap.get(material.roomId);
+      const category = categoriesMap.get(material.categoryId);
+
+      tasks.push({
+        id: `task_hi_${hi.id}_handover`,
+        sourceType: TASK_SOURCE_TYPE.HANDOVER_INCOMPLETE,
+        status: TASK_STATUS.PENDING,
+        materialId: material.id,
+        material,
+        handoverItemId: hi.id,
+        handoverItem: hi,
+        handover,
+        meetingId: material.meetingId,
+        meeting,
+        roomId: material.roomId,
+        room,
+        category,
+        title: `${handover.title} - ${material.name}`,
+        description: `${category?.name || ''} - ${material.name}，交接待确认`,
+        personInCharge: handover.receiverPerson || material.personInCharge || meeting?.personInCharge || '',
+        progress: hi.itemRemark || '待交接确认',
+        dueTime: handover.handoverTime || '',
+        priority: isTaskOverdue({ dueTime: handover.handoverTime }) ? 'high' : 'medium',
+        owner: handover.receiverPerson || '',
+        remark: hi.itemRemark || '',
+        createdAt: handover.createdAt,
+      });
+    });
+
+    state.rectifications.forEach(rect => {
+      if (rect.status === RECTIFICATION_STATUS.COMPLETED) return;
+
+      const material = state.materials.find(m => m.id === rect.materialId);
+      const meeting = rect.meetingId ? meetingsMap.get(rect.meetingId) : null;
+      const room = rect.roomId ? roomsMap.get(rect.roomId) : null;
+      const category = material ? categoriesMap.get(material.categoryId) : null;
+
+      const sourceType = rect.status === RECTIFICATION_STATUS.PENDING
+        ? TASK_SOURCE_TYPE.RECTIFICATION_PENDING
+        : TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS;
+
+      tasks.push({
+        id: `task_rect_${rect.id}`,
+        sourceType,
+        status: rect.status === RECTIFICATION_STATUS.PENDING ? TASK_STATUS.PENDING : TASK_STATUS.IN_PROGRESS,
+        rectificationId: rect.id,
+        rectification: rect,
+        materialId: rect.materialId,
+        material,
+        meetingId: rect.meetingId,
+        meeting,
+        roomId: rect.roomId,
+        room,
+        category,
+        title: material ? material.name : `整改事项 ${rect.id}`,
+        description: `整改类型: ${RECTIFICATION_TYPE_LABELS[rect.type] || rect.type}`,
+        personInCharge: rect.owner || meeting?.personInCharge || '',
+        progress: rect.progress || '',
+        dueTime: rect.dueTime || '',
+        priority: isTaskOverdue({ dueTime: rect.dueTime }) ? 'high' : (rect.status === RECTIFICATION_STATUS.PENDING ? 'medium' : 'low'),
+        owner: rect.owner || '',
+        remark: rect.remark || '',
+        createdAt: rect.createdAt,
+      });
+    });
+
+    return tasks;
+  }, [state.materials, state.meetings, state.rooms, state.categories, state.handovers, state.handoverItems, state.rectifications]);
+
+  const filteredPreMeetingTasks = useMemo(() => {
+    const { dateRange, roomIds, meetingIds, personInCharges, riskLevels, sourceTypes, statuses } = state.taskFilters;
+    let result = [...preMeetingTasks];
+
+    if (dateRange.start) {
+      result = result.filter(t => t.meeting && t.meeting.date >= dateRange.start);
+    }
+    if (dateRange.end) {
+      result = result.filter(t => t.meeting && t.meeting.date <= dateRange.end);
+    }
+    if (roomIds.length > 0) {
+      result = result.filter(t => roomIds.includes(t.roomId));
+    }
+    if (meetingIds.length > 0) {
+      result = result.filter(t => meetingIds.includes(t.meetingId));
+    }
+    if (personInCharges.length > 0) {
+      result = result.filter(t =>
+        personInCharges.includes(t.personInCharge) ||
+        personInCharges.includes(t.owner)
+      );
+    }
+    if (riskLevels.length > 0) {
+      result = result.filter(t => riskLevels.includes(t.priority));
+    }
+    if (sourceTypes.length > 0) {
+      result = result.filter(t => sourceTypes.includes(t.sourceType));
+    }
+    if (statuses.length > 0) {
+      result = result.filter(t => statuses.includes(t.status));
+    }
+
+    return result;
+  }, [preMeetingTasks, state.taskFilters]);
+
+  const preMeetingTasksByMeeting = useMemo(() => {
+    const byMeeting = new Map();
+
+    filteredPreMeetingTasks.forEach(task => {
+      const meetingId = task.meetingId || 'unknown';
+      if (!byMeeting.has(meetingId)) {
+        byMeeting.set(meetingId, {
+          meetingId,
+          meeting: task.meeting,
+          room: task.room,
+          tasks: [],
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          overdueTasks: 0,
+          highPriorityTasks: 0,
+          ownerDistribution: {},
+          sourceTypeDistribution: {},
+        });
+      }
+      const group = byMeeting.get(meetingId);
+      group.tasks.push(task);
+      group.totalTasks++;
+
+      if (task.status === TASK_STATUS.COMPLETED) {
+        group.completedTasks++;
+      } else if (task.status === TASK_STATUS.IN_PROGRESS) {
+        group.inProgressTasks++;
+      } else {
+        group.pendingTasks++;
+      }
+
+      if (isTaskOverdue(task)) {
+        group.overdueTasks++;
+      }
+
+      if (task.priority === 'high') {
+        group.highPriorityTasks++;
+      }
+
+      const owner = task.owner || task.personInCharge || '未分配';
+      group.ownerDistribution[owner] = (group.ownerDistribution[owner] || 0) + 1;
+      group.sourceTypeDistribution[task.sourceType] = (group.sourceTypeDistribution[task.sourceType] || 0) + 1;
+    });
+
+    return Array.from(byMeeting.values()).map(group => ({
+      ...group,
+      progressRate: group.totalTasks > 0 ? Math.round((group.completedTasks / group.totalTasks) * 100) : 0,
+    })).sort((a, b) => {
+      if (a.overdueTasks !== b.overdueTasks) return b.overdueTasks - a.overdueTasks;
+      if (a.highPriorityTasks !== b.highPriorityTasks) return b.highPriorityTasks - a.highPriorityTasks;
+      if (a.pendingTasks !== b.pendingTasks) return b.pendingTasks - a.pendingTasks;
+      return (a.meeting?.date || '').localeCompare(b.meeting?.date || '');
+    });
+  }, [filteredPreMeetingTasks]);
+
+  const preMeetingTasksByRoom = useMemo(() => {
+    const byRoom = new Map();
+
+    filteredPreMeetingTasks.forEach(task => {
+      const roomId = task.roomId || 'unknown';
+      if (!byRoom.has(roomId)) {
+        byRoom.set(roomId, {
+          roomId,
+          room: task.room,
+          tasks: [],
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          overdueTasks: 0,
+          highPriorityTasks: 0,
+          ownerDistribution: {},
+          sourceTypeDistribution: {},
+          meetingCount: new Set(),
+        });
+      }
+      const group = byRoom.get(roomId);
+      group.tasks.push(task);
+      group.totalTasks++;
+
+      if (task.meetingId) {
+        group.meetingCount.add(task.meetingId);
+      }
+
+      if (task.status === TASK_STATUS.COMPLETED) {
+        group.completedTasks++;
+      } else if (task.status === TASK_STATUS.IN_PROGRESS) {
+        group.inProgressTasks++;
+      } else {
+        group.pendingTasks++;
+      }
+
+      if (isTaskOverdue(task)) {
+        group.overdueTasks++;
+      }
+
+      if (task.priority === 'high') {
+        group.highPriorityTasks++;
+      }
+
+      const owner = task.owner || task.personInCharge || '未分配';
+      group.ownerDistribution[owner] = (group.ownerDistribution[owner] || 0) + 1;
+      group.sourceTypeDistribution[task.sourceType] = (group.sourceTypeDistribution[task.sourceType] || 0) + 1;
+    });
+
+    return Array.from(byRoom.values()).map(group => ({
+      ...group,
+      meetingCount: group.meetingCount.size,
+      progressRate: group.totalTasks > 0 ? Math.round((group.completedTasks / group.totalTasks) * 100) : 0,
+    })).sort((a, b) => {
+      if (a.overdueTasks !== b.overdueTasks) return b.overdueTasks - a.overdueTasks;
+      if (a.highPriorityTasks !== b.highPriorityTasks) return b.highPriorityTasks - a.highPriorityTasks;
+      if (a.pendingTasks !== b.pendingTasks) return b.pendingTasks - a.pendingTasks;
+      return (a.room?.name || '').localeCompare(b.room?.name || '');
+    });
+  }, [filteredPreMeetingTasks]);
+
+  const preMeetingTasksByPerson = useMemo(() => {
+    const byPerson = new Map();
+
+    filteredPreMeetingTasks.forEach(task => {
+      const person = task.owner || task.personInCharge || '未分配';
+      if (!byPerson.has(person)) {
+        byPerson.set(person, {
+          person,
+          tasks: [],
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          overdueTasks: 0,
+          highPriorityTasks: 0,
+          roomDistribution: {},
+          sourceTypeDistribution: {},
+          meetingCount: new Set(),
+        });
+      }
+      const group = byPerson.get(person);
+      group.tasks.push(task);
+      group.totalTasks++;
+
+      if (task.meetingId) {
+        group.meetingCount.add(task.meetingId);
+      }
+
+      if (task.status === TASK_STATUS.COMPLETED) {
+        group.completedTasks++;
+      } else if (task.status === TASK_STATUS.IN_PROGRESS) {
+        group.inProgressTasks++;
+      } else {
+        group.pendingTasks++;
+      }
+
+      if (isTaskOverdue(task)) {
+        group.overdueTasks++;
+      }
+
+      if (task.priority === 'high') {
+        group.highPriorityTasks++;
+      }
+
+      const roomName = task.room?.name || '未知会议室';
+      group.roomDistribution[roomName] = (group.roomDistribution[roomName] || 0) + 1;
+      group.sourceTypeDistribution[task.sourceType] = (group.sourceTypeDistribution[task.sourceType] || 0) + 1;
+    });
+
+    return Array.from(byPerson.values()).map(group => ({
+      ...group,
+      meetingCount: group.meetingCount.size,
+      progressRate: group.totalTasks > 0 ? Math.round((group.completedTasks / group.totalTasks) * 100) : 0,
+    })).sort((a, b) => {
+      if (a.overdueTasks !== b.overdueTasks) return b.overdueTasks - a.overdueTasks;
+      if (a.highPriorityTasks !== b.highPriorityTasks) return b.highPriorityTasks - a.highPriorityTasks;
+      if (a.pendingTasks !== b.pendingTasks) return b.pendingTasks - a.pendingTasks;
+      return a.person.localeCompare(b.person);
+    });
+  }, [filteredPreMeetingTasks]);
+
+  const preMeetingTaskSummary = useMemo(() => {
+    const tasks = preMeetingTasks;
+    const total = tasks.length;
+    const pending = tasks.filter(t => t.status === TASK_STATUS.PENDING).length;
+    const inProgress = tasks.filter(t => t.status === TASK_STATUS.IN_PROGRESS).length;
+    const completed = tasks.filter(t => t.status === TASK_STATUS.COMPLETED).length;
+    const overdue = tasks.filter(t => isTaskOverdue(t)).length;
+    const highPriority = tasks.filter(t => t.priority === 'high').length;
+
+    const bySourceType = {};
+    const byOwner = {};
+    const byMeeting = {};
+
+    tasks.forEach(t => {
+      bySourceType[t.sourceType] = (bySourceType[t.sourceType] || 0) + 1;
+      const owner = t.owner || t.personInCharge || '未分配';
+      byOwner[owner] = (byOwner[owner] || 0) + 1;
+      if (t.meetingId) {
+        byMeeting[t.meetingId] = (byMeeting[t.meetingId] || 0) + 1;
+      }
+    });
+
+    return {
+      total,
+      pending,
+      inProgress,
+      completed,
+      overdue,
+      highPriority,
+      bySourceType,
+      byOwner,
+      byMeeting,
+      completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+    };
+  }, [preMeetingTasks]);
+
+  const selectedTask = useMemo(() => {
+    if (!state.selectedTaskId) return null;
+    return preMeetingTasks.find(t => t.id === state.selectedTaskId) || null;
+  }, [preMeetingTasks, state.selectedTaskId]);
+
+  const claimTask = useCallback(async (task, owner) => {
+    if (!owner.trim()) {
+      alert('请输入责任人姓名');
+      return false;
+    }
+
+    const now = new Date().toISOString();
+
+    if (task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_PENDING || task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS) {
+      await assignRectification(task.rectification || task, owner.trim(), task.dueTime);
+    } else if (task.materialId) {
+      await db.materials.update(task.materialId, {
+        personInCharge: owner.trim(),
+        updatedAt: now,
+      });
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, personInCharge: owner.trim(), updatedAt: now }] });
+    }
+
+    return true;
+  }, [assignRectification]);
+
+  const updateTaskProgress = useCallback(async (task, progress, remark = '') => {
+    if (!progress.trim()) {
+      alert('请输入处理进展');
+      return false;
+    }
+
+    const now = new Date().toISOString();
+
+    if (task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_PENDING || task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS) {
+      await updateRectificationProgress(task.rectification || task, progress, remark);
+    } else if (task.materialId) {
+      const updates = { updatedAt: now };
+      if (task.sourceType === TASK_SOURCE_TYPE.FOLLOW_UP_PENDING || task.sourceType === TASK_SOURCE_TYPE.FOLLOW_UP_OVERDUE) {
+        updates.followUpNote = remark || progress;
+        if (task.status === TASK_STATUS.PENDING) {
+          updates.followUpStatus = FOLLOW_UP_STATUS.PENDING;
+        }
+      }
+      await db.materials.update(task.materialId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, ...updates }] });
+    } else if (task.handoverItemId) {
+      await db.handoverItems.update(task.handoverItemId, {
+        itemRemark: remark || progress,
+      });
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: task.handoverItemId, itemRemark: remark || progress }] });
+    }
+
+    return true;
+  }, [updateRectificationProgress]);
+
+  const completeTask = useCallback(async (task, completionRemark = '') => {
+    const now = new Date().toISOString();
+
+    if (task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_PENDING || task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS) {
+      await completeRectification(task.rectification || task, completionRemark);
+    } else if (task.sourceType === TASK_SOURCE_TYPE.MATERIAL_SHORTAGE && task.materialId) {
+      const material = state.materials.find(m => m.id === task.materialId);
+      if (material) {
+        const updates = {
+          preparedQty: material.requiredQty,
+          status: MATERIAL_STATUS.READY,
+          shortageNote: completionRemark || material.shortageNote,
+          updatedAt: now,
+        };
+        await db.materials.update(task.materialId, updates);
+        dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, ...updates }] });
+      }
+    } else if (task.sourceType === TASK_SOURCE_TYPE.REVIEW_REQUIRED && task.materialId) {
+      const updates = {
+        status: MATERIAL_STATUS.READY,
+        updatedAt: now,
+      };
+      await db.materials.update(task.materialId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, ...updates }] });
+    } else if (task.sourceType === TASK_SOURCE_TYPE.FOLLOW_UP_PENDING || task.sourceType === TASK_SOURCE_TYPE.FOLLOW_UP_OVERDUE) {
+      if (task.materialId) {
+        const updates = {
+          followUpStatus: FOLLOW_UP_STATUS.COMPLETED,
+          followUpCompletedAt: now,
+          followUpNote: completionRemark || '',
+          updatedAt: now,
+        };
+        await db.materials.update(task.materialId, updates);
+        dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, ...updates }] });
+      }
+    } else if (task.sourceType === TASK_SOURCE_TYPE.MATERIAL_PREPARATION && task.materialId) {
+      const material = state.materials.find(m => m.id === task.materialId);
+      if (material) {
+        const updates = {
+          status: MATERIAL_STATUS.READY,
+          preparedQty: material.requiredQty,
+          updatedAt: now,
+        };
+        await db.materials.update(task.materialId, updates);
+        dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, ...updates }] });
+      }
+    } else if (task.sourceType === TASK_SOURCE_TYPE.HANDOVER_INCOMPLETE && task.handoverItemId) {
+      const hi = state.handoverItems.find(i => i.id === task.handoverItemId);
+      if (hi) {
+        await updateHandoverItem(task.handoverItemId, {
+          confirmed: true,
+          itemRemark: completionRemark || '',
+        }, true);
+      }
+    }
+
+    return true;
+  }, [completeRectification, state.materials, state.handoverItems, updateHandoverItem]);
+
   const value = {
     state,
     dispatch,
@@ -1541,6 +2119,16 @@ export function AppProvider({ children }) {
     rectificationSummary,
     groupedRectifications,
     selectedRectification,
+    preMeetingTasks,
+    filteredPreMeetingTasks,
+    preMeetingTasksByMeeting,
+    preMeetingTasksByRoom,
+    preMeetingTasksByPerson,
+    preMeetingTaskSummary,
+    selectedTask,
+    claimTask,
+    updateTaskProgress,
+    completeTask,
     updateMaterial,
     updateMaterialField,
     bulkUpdateStatus,

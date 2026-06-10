@@ -3865,3 +3865,860 @@ textarea:focus {
   }
 }
 
+/* ==================== 会前保障任务清单 PreMeeting Task List ==================== */
+.pre-meeting-task-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.pre-meeting-task-container .app-header {
+  padding: 8px 4px;
+}
+
+.pre-meeting-task-container .app-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pre-meeting-task-container .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-group-toggle {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.task-group-toggle .btn-toggle {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.task-group-toggle .btn-toggle.active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 统计卡片 */
+.task-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.task-summary-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  border-left: 4px solid #3b82f6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.task-summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.task-summary-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.task-summary-icon {
+  font-size: 18px;
+}
+
+.task-summary-label {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.task-summary-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.task-summary-sub {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* 筛选栏 */
+.task-filter-bar {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.task-filter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.task-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-filter-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.task-filter-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.task-filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.task-filter-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.task-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+}
+
+/* 会议任务卡片列表 */
+.meeting-tasks-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.meeting-task-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s;
+}
+
+.meeting-task-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.meeting-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+}
+
+.meeting-task-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.meeting-task-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.meeting-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.meeting-task-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.meeting-task-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.meeting-task-progress .progress-bar {
+  flex: 1;
+  height: 10px;
+  background: #e2e8f0;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.meeting-task-progress .progress-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  min-width: 45px;
+  text-align: right;
+}
+
+/* 统计数据 */
+.meeting-task-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.meeting-task-stat {
+  text-align: center;
+  padding: 10px 8px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.meeting-task-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+
+.meeting-task-stat-label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* 任务类型分布 */
+.meeting-task-source-types {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.meeting-task-section-label {
+  color: #64748b;
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.source-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+/* 责任人分布 */
+.meeting-task-owners {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+.owner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  white-space: nowrap;
+}
+
+/* 任务列表 */
+.meeting-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: #fafbfc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  gap: 12px;
+}
+
+.task-item:hover {
+  background: #fff;
+  border-color: #cbd5e1;
+  transform: translateX(2px);
+}
+
+.task-item-overdue {
+  border-left: 4px solid #dc2626;
+  padding-left: 10px;
+}
+
+.task-item-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.task-item-type-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.task-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.task-overdue-badge {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.task-high-priority-badge {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+}
+
+.task-item-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.task-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: #94a3b8;
+  align-items: center;
+}
+
+.task-item-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.task-item-right {
+  flex-shrink: 0;
+}
+
+.task-more-hint {
+  text-align: center;
+  padding: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.task-more-hint:hover {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* 任务弹窗 */
+.task-modal-overlay {
+  z-index: 1500;
+}
+
+.task-modal {
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.task-modal-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.task-modal-tab {
+  padding: 12px 20px;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.task-modal-tab:hover {
+  color: #334155;
+  background: #f1f5f9;
+}
+
+.task-modal-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  background: #fff;
+  font-weight: 600;
+}
+
+.task-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* 任务详情 */
+.task-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.task-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-detail-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.task-detail-value {
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.task-overdue-text {
+  color: #dc2626 !important;
+  font-weight: 600 !important;
+}
+
+.task-detail-desc,
+.task-detail-progress,
+.task-detail-remark {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.task-detail-desc-content,
+.task-detail-progress-content,
+.task-detail-remark-content {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+
+/* 关联信息 */
+.task-related-info {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.task-related-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-related-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+  padding: 12px 14px;
+}
+
+.task-related-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-related-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.task-related-value {
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+/* 处理任务 */
+.task-process-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.task-process-block {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.task-process-block-complete {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.task-process-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-process-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.task-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.task-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-form-item-full {
+  grid-column: 1 / -1;
+}
+
+.task-form-label {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.task-form-input,
+.task-form-select,
+.task-form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: #fff;
+}
+
+.task-form-input:focus,
+.task-form-select:focus,
+.task-form-textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.task-form-textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+.task-process-warning {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #92400e;
+}
+
+.task-process-warning ul {
+  margin: 6px 0 0 0;
+  padding-left: 20px;
+}
+
+.task-process-warning li {
+  margin-bottom: 2px;
+  line-height: 1.5;
+}
+
+.task-modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* 按会议室、按负责人分组的卡片样式 */
+.room-task-card,
+.person-task-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+.room-task-header,
+.person-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.room-task-title,
+.person-task-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-task-count,
+.person-task-count {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+  .meeting-task-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .task-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .task-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .task-summary-card {
+    padding: 12px;
+  }
+
+  .task-summary-value {
+    font-size: 22px;
+  }
+
+  .task-filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .meeting-task-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .meeting-task-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .meeting-task-progress {
+    min-width: 100%;
+  }
+
+  .task-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .task-item-right {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .task-related-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .task-group-toggle {
+    order: -1;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .pre-meeting-task-container .header-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .task-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .meeting-task-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .task-summary-value {
+    font-size: 20px;
+  }
+
+  .meeting-task-title {
+    font-size: 15px;
+  }
+
+  .task-item-title {
+    font-size: 13px;
+  }
+}
+

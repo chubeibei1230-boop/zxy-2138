@@ -226,6 +226,75 @@ export const RECTIFICATION_SOURCE_TYPE = {
   HANDOVER_ITEM: 'handover_item',
 };
 
+export const TASK_SOURCE_TYPE = {
+  MATERIAL_PREPARATION: 'material_preparation',
+  MATERIAL_SHORTAGE: 'material_shortage',
+  FOLLOW_UP_PENDING: 'follow_up_pending',
+  FOLLOW_UP_OVERDUE: 'follow_up_overdue',
+  REVIEW_REQUIRED: 'review_required',
+  HANDOVER_INCOMPLETE: 'handover_incomplete',
+  RECTIFICATION_PENDING: 'rectification_pending',
+  RECTIFICATION_IN_PROGRESS: 'rectification_in_progress',
+};
+
+export const TASK_SOURCE_TYPE_LABELS = {
+  material_preparation: '物料准备',
+  material_shortage: '短缺风险',
+  follow_up_pending: '待跟进',
+  follow_up_overdue: '逾期跟进',
+  review_required: '需复核',
+  handover_incomplete: '交接未完成',
+  rectification_pending: '整改待认领',
+  rectification_in_progress: '整改处理中',
+};
+
+export const TASK_SOURCE_TYPE_COLORS = {
+  material_preparation: '#3b82f6',
+  material_shortage: '#ef4444',
+  follow_up_pending: '#f59e0b',
+  follow_up_overdue: '#dc2626',
+  review_required: '#8b5cf6',
+  handover_incomplete: '#7c3aed',
+  rectification_pending: '#64748b',
+  rectification_in_progress: '#3b82f6',
+};
+
+export const TASK_SOURCE_TYPE_ICONS = {
+  material_preparation: '📦',
+  material_shortage: '⚠️',
+  follow_up_pending: '⏩',
+  follow_up_overdue: '⏰',
+  review_required: '🔍',
+  handover_incomplete: '🤝',
+  rectification_pending: '📋',
+  rectification_in_progress: '⚙️',
+};
+
+export const TASK_STATUS = {
+  PENDING: 'pending',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+};
+
+export const TASK_STATUS_LABELS = {
+  pending: '待处理',
+  in_progress: '处理中',
+  completed: '已完成',
+};
+
+export const TASK_STATUS_COLORS = {
+  pending: '#ef4444',
+  in_progress: '#f59e0b',
+  completed: '#10b981',
+};
+
+export function isTaskOverdue(task) {
+  if (!task.dueTime) return false;
+  const now = new Date();
+  const due = new Date(task.dueTime);
+  return now > due;
+}
+
 export function getFollowUpStatus(material) {
   if (!material || !material.followUpStatus || material.followUpStatus === FOLLOW_UP_STATUS.NONE) {
     return material.followUp ? FOLLOW_UP_STATUS.PENDING : FOLLOW_UP_STATUS.NONE;

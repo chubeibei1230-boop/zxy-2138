@@ -9,9 +9,11 @@ import HandoverModal from './components/HandoverModal';
 import RiskDashboard from './components/RiskDashboard';
 import RectificationCenter from './components/RectificationCenter';
 import RectificationModal from './components/RectificationModal';
+import PreMeetingTaskList from './components/PreMeetingTaskList';
+import TaskModal from './components/TaskModal';
 
 function AppContent() {
-  const { state, dispatch, riskAnalysis, rectificationSummary } = useApp();
+  const { state, dispatch, riskAnalysis, rectificationSummary, preMeetingTaskSummary } = useApp();
   const { loading, reviewMode, currentView } = state;
 
   if (loading) {
@@ -28,6 +30,7 @@ function AppContent() {
         <RiskDashboard />
         <HandoverModal />
         <RectificationModal />
+        <TaskModal />
       </div>
     );
   }
@@ -38,6 +41,18 @@ function AppContent() {
         <RectificationCenter />
         <HandoverModal />
         <RectificationModal />
+        <TaskModal />
+      </div>
+    );
+  }
+
+  if (currentView === RISK_VIEW.TASK_LIST) {
+    return (
+      <div className="app-container">
+        <PreMeetingTaskList />
+        <HandoverModal />
+        <RectificationModal />
+        <TaskModal />
       </div>
     );
   }
@@ -45,6 +60,8 @@ function AppContent() {
   const { summary } = riskAnalysis;
   const rectPendingCount = rectificationSummary?.byStatus?.pending || 0;
   const rectInProgressCount = rectificationSummary?.byStatus?.in_progress || 0;
+  const taskPendingCount = preMeetingTaskSummary?.pending || 0;
+  const taskOverdueCount = preMeetingTaskSummary?.overdue || 0;
 
   return (
     <div className="app-container">
@@ -54,6 +71,35 @@ function AppContent() {
           会议物料分组准备
         </div>
         <div className="header-actions">
+          <button
+            className="btn"
+            style={{
+              background: (taskPendingCount + taskOverdueCount) > 0
+                ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+                : '#f1f5f9',
+              color: (taskPendingCount + taskOverdueCount) > 0 ? '#fff' : '#475569',
+              border: (taskPendingCount + taskOverdueCount) > 0 ? 'none' : '1px solid #e2e8f0',
+            }}
+            onClick={() => dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.TASK_LIST })}
+            title="会前保障任务清单，统一管理所有待办事项"
+          >
+            📋 任务清单
+            {(taskPendingCount + taskOverdueCount) > 0 && (
+              <span
+                style={{
+                  marginLeft: '6px',
+                  padding: '1px 8px',
+                  borderRadius: '10px',
+                  background: (taskPendingCount + taskOverdueCount) > 0 ? 'rgba(255,255,255,0.25)' : '#dbeafe',
+                  color: (taskPendingCount + taskOverdueCount) > 0 ? '#fff' : '#1d4ed8',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                }}
+              >
+                {taskPendingCount + taskOverdueCount}
+              </span>
+            )}
+          </button>
           <button
             className="btn"
             style={{
@@ -132,6 +178,7 @@ function AppContent() {
 
       <HandoverModal />
       <RectificationModal />
+      <TaskModal />
     </div>
   );
 }
