@@ -121,6 +121,43 @@ export const FOLLOW_UP_STATUS_COLORS = {
   completed: '#10b981',
 };
 
+export const RISK_LEVEL = {
+  HIGH: 'high',
+  MEDIUM: 'medium',
+  LOW: 'low',
+  NONE: 'none',
+};
+
+export const RISK_LEVEL_LABELS = {
+  high: '高风险',
+  medium: '中风险',
+  low: '低风险',
+  none: '正常',
+};
+
+export const RISK_LEVEL_COLORS = {
+  high: '#ef4444',
+  medium: '#f59e0b',
+  low: '#3b82f6',
+  none: '#10b981',
+};
+
+export const RISK_FACTOR_TYPE = {
+  SHORTAGE: 'shortage',
+  FOLLOW_UP_OVERDUE: 'follow_up_overdue',
+  FOLLOW_UP_PENDING: 'follow_up_pending',
+  REVIEW: 'review',
+  HANDOVER_INCOMPLETE: 'handover_incomplete',
+};
+
+export const RISK_FACTOR_LABELS = {
+  shortage: '物料短缺',
+  follow_up_overdue: '逾期跟进',
+  follow_up_pending: '待跟进',
+  review: '需复核',
+  handover_incomplete: '交接未完成',
+};
+
 export function getFollowUpStatus(material) {
   if (!material || !material.followUpStatus || material.followUpStatus === FOLLOW_UP_STATUS.NONE) {
     return material.followUp ? FOLLOW_UP_STATUS.PENDING : FOLLOW_UP_STATUS.NONE;

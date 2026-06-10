@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE } from '../db';
 
 const AppContext = createContext(null);
 
@@ -7,6 +7,11 @@ export const GROUP_BY = {
   ROOM: 'room',
   BATCH: 'batch',
   PERSON: 'person',
+};
+
+export const RISK_VIEW = {
+  MAIN: 'main',
+  DASHBOARD: 'dashboard',
 };
 
 const initialState = {
@@ -33,6 +38,16 @@ const initialState = {
   showHandoverModal: false,
   currentHandoverId: null,
   handoverSourceType: HANDOVER_SOURCE_TYPE.FILTERED,
+  currentView: RISK_VIEW.MAIN,
+  riskFilters: {
+    dateRange: { start: '', end: '' },
+    roomIds: [],
+    personInCharges: [],
+    meetingIds: [],
+    riskLevels: [],
+  },
+  selectedRiskMeetingId: null,
+  riskMobileDetailExpanded: false,
 };
 
 function appReducer(state, action) {
@@ -163,6 +178,18 @@ function appReducer(state, action) {
         handoverItems: state.handoverItems.filter(i => i.handoverId !== action.payload),
         currentHandoverId: state.currentHandoverId === action.payload ? null : state.currentHandoverId,
       };
+    case 'SET_CURRENT_VIEW':
+      return { ...state, currentView: action.payload };
+    case 'SET_RISK_FILTERS':
+      return {
+        ...state,
+        riskFilters: { ...state.riskFilters, ...action.payload },
+        selectedRiskMeetingId: null,
+      };
+    case 'SET_SELECTED_RISK_MEETING':
+      return { ...state, selectedRiskMeetingId: action.payload, riskMobileDetailExpanded: true };
+    case 'TOGGLE_RISK_MOBILE_DETAIL':
+      return { ...state, riskMobileDetailExpanded: !state.riskMobileDetailExpanded };
     default:
       return state;
   }
@@ -275,6 +302,231 @@ export function AppProvider({ children }) {
       followUpCompletedCount,
     };
   }, [state.materials, state.rooms]);
+
+  const riskAnalysis = useMemo(() => {
+    const { dateRange, roomIds, personInCharges, meetingIds, riskLevels } = state.riskFilters;
+    const all = state.materials;
+
+    const meetingsMap = new Map();
+    state.meetings.forEach(m => meetingsMap.set(m.id, m));
+
+    const roomsMap = new Map();
+    state.rooms.forEach(r => roomsMap.set(r.id, r));
+
+    const incompleteHandoverMap = new Map();
+    state.handovers.forEach(h => {
+      if (h.status !== HANDOVER_STATUS.COMPLETED && h.status !== HANDOVER_STATUS.ARCHIVED) {
+        const items = state.handoverItems.filter(hi => hi.handoverId === h.id);
+        items.forEach(item => {
+          const material = all.find(m => m.id === item.materialId);
+          if (!material) return;
+          if (!incompleteHandoverMap.has(material.meetingId)) {
+            incompleteHandoverMap.set(material.meetingId, []);
+          }
+          incompleteHandoverMap.get(material.meetingId).push({
+            handover: h,
+            handoverItem: item,
+            material,
+          });
+        });
+      }
+    });
+
+    const meetingRiskMap = new Map();
+
+    all.forEach(material => {
+      const meeting = meetingsMap.get(material.meetingId);
+      if (!meeting) return;
+
+      if (!meetingRiskMap.has(meeting.id)) {
+        meetingRiskMap.set(meeting.id, {
+          meetingId: meeting.id,
+          meeting,
+          room: roomsMap.get(meeting.roomId),
+          materials: [],
+          riskFactors: [],
+          shortageMaterials: [],
+          overdueFollowUpMaterials: [],
+          pendingFollowUpMaterials: [],
+          reviewMaterials: [],
+          handoverIncompleteItems: [],
+          totalShortageQty: 0,
+        });
+      }
+
+      const riskData = meetingRiskMap.get(meeting.id);
+      riskData.materials.push(material);
+
+      const isShortage = material.preparedQty < material.requiredQty || material.status === MATERIAL_STATUS.SHORTAGE;
+      if (isShortage) {
+        riskData.shortageMaterials.push(material);
+        riskData.totalShortageQty += Math.max(0, material.requiredQty - material.preparedQty);
+      }
+
+      const fStatus = getFollowUpStatus(material);
+      if (fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+        riskData.overdueFollowUpMaterials.push(material);
+      } else if (fStatus === FOLLOW_UP_STATUS.PENDING) {
+        riskData.pendingFollowUpMaterials.push(material);
+      }
+
+      if (material.status === MATERIAL_STATUS.REVIEW) {
+        riskData.reviewMaterials.push(material);
+      }
+    });
+
+    incompleteHandoverMap.forEach((items, meetingId) => {
+      if (meetingRiskMap.has(meetingId)) {
+        meetingRiskMap.get(meetingId).handoverIncompleteItems = items;
+      } else {
+        const meeting = meetingsMap.get(meetingId);
+        if (meeting) {
+          meetingRiskMap.set(meetingId, {
+            meetingId: meeting.id,
+            meeting,
+            room: roomsMap.get(meeting.roomId),
+            materials: [],
+            riskFactors: [],
+            shortageMaterials: [],
+            overdueFollowUpMaterials: [],
+            pendingFollowUpMaterials: [],
+            reviewMaterials: [],
+            handoverIncompleteItems: items,
+            totalShortageQty: 0,
+          });
+        }
+      }
+    });
+
+    let meetingsRisk = Array.from(meetingRiskMap.values()).map(riskData => {
+      const riskFactors = [];
+      let riskScore = 0;
+
+      if (riskData.shortageMaterials.length > 0) {
+        const severity = riskData.totalShortageQty >= 20 || riskData.shortageMaterials.length >= 5 ? 'high' : riskData.totalShortageQty >= 5 ? 'medium' : 'low';
+        riskFactors.push({
+          type: RISK_FACTOR_TYPE.SHORTAGE,
+          count: riskData.shortageMaterials.length,
+          qty: riskData.totalShortageQty,
+          severity,
+        });
+        riskScore += severity === 'high' ? 40 : severity === 'medium' ? 20 : 10;
+      }
+
+      if (riskData.overdueFollowUpMaterials.length > 0) {
+        const severity = riskData.overdueFollowUpMaterials.length >= 3 ? 'high' : riskData.overdueFollowUpMaterials.length >= 1 ? 'medium' : 'low';
+        riskFactors.push({
+          type: RISK_FACTOR_TYPE.FOLLOW_UP_OVERDUE,
+          count: riskData.overdueFollowUpMaterials.length,
+          severity,
+        });
+        riskScore += severity === 'high' ? 50 : severity === 'medium' ? 30 : 15;
+      }
+
+      if (riskData.pendingFollowUpMaterials.length > 0) {
+        const severity = riskData.pendingFollowUpMaterials.length >= 5 ? 'medium' : 'low';
+        riskFactors.push({
+          type: RISK_FACTOR_TYPE.FOLLOW_UP_PENDING,
+          count: riskData.pendingFollowUpMaterials.length,
+          severity,
+        });
+        riskScore += severity === 'medium' ? 12 : 6;
+      }
+
+      if (riskData.reviewMaterials.length > 0) {
+        const severity = riskData.reviewMaterials.length >= 5 ? 'medium' : 'low';
+        riskFactors.push({
+          type: RISK_FACTOR_TYPE.REVIEW,
+          count: riskData.reviewMaterials.length,
+          severity,
+        });
+        riskScore += severity === 'medium' ? 15 : 8;
+      }
+
+      if (riskData.handoverIncompleteItems.length > 0) {
+        const severity = riskData.handoverIncompleteItems.length >= 10 ? 'high' : riskData.handoverIncompleteItems.length >= 3 ? 'medium' : 'low';
+        riskFactors.push({
+          type: RISK_FACTOR_TYPE.HANDOVER_INCOMPLETE,
+          count: riskData.handoverIncompleteItems.length,
+          severity,
+        });
+        riskScore += severity === 'high' ? 35 : severity === 'medium' ? 18 : 9;
+      }
+
+      let riskLevel;
+      if (riskScore >= 50) riskLevel = RISK_LEVEL.HIGH;
+      else if (riskScore >= 25) riskLevel = RISK_LEVEL.MEDIUM;
+      else if (riskScore >= 8) riskLevel = RISK_LEVEL.LOW;
+      else riskLevel = RISK_LEVEL.NONE;
+
+      const readyCount = riskData.materials.filter(m =>
+        m.status === MATERIAL_STATUS.READY && m.preparedQty >= m.requiredQty
+      ).length;
+      const completionRate = riskData.materials.length > 0
+        ? Math.round((readyCount / riskData.materials.length) * 100)
+        : 0;
+
+      return {
+        ...riskData,
+        riskFactors,
+        riskLevel,
+        riskScore,
+        completionRate,
+        readyCount,
+        totalMaterials: riskData.materials.length,
+      };
+    });
+
+    meetingsRisk = meetingsRisk.filter(risk => {
+      const meeting = risk.meeting;
+      if (dateRange.start && meeting.date < dateRange.start) return false;
+      if (dateRange.end && meeting.date > dateRange.end) return false;
+      if (roomIds.length > 0 && !roomIds.includes(meeting.roomId)) return false;
+      if (personInCharges.length > 0 && !personInCharges.includes(meeting.personInCharge)) return false;
+      if (meetingIds.length > 0 && !meetingIds.includes(meeting.id)) return false;
+      if (riskLevels.length > 0 && !riskLevels.includes(risk.riskLevel)) return false;
+      return true;
+    });
+
+    const riskLevelPriority = { high: 0, medium: 1, low: 2, none: 3 };
+    meetingsRisk.sort((a, b) => {
+      if (riskLevelPriority[a.riskLevel] !== riskLevelPriority[b.riskLevel]) {
+        return riskLevelPriority[a.riskLevel] - riskLevelPriority[b.riskLevel];
+      }
+      if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore;
+      return a.meeting.date.localeCompare(b.meeting.date);
+    });
+
+    let highRiskCount = 0;
+    let overdueFollowUpTotal = 0;
+    let shortageMaterialsTotal = 0;
+    let handoverPendingTotal = 0;
+    let pendingFollowUpTotal = 0;
+    let reviewTotal = 0;
+
+    meetingsRisk.forEach(r => {
+      if (r.riskLevel === RISK_LEVEL.HIGH) highRiskCount++;
+      overdueFollowUpTotal += r.overdueFollowUpMaterials.length;
+      shortageMaterialsTotal += r.shortageMaterials.length;
+      handoverPendingTotal += r.handoverIncompleteItems.length;
+      pendingFollowUpTotal += r.pendingFollowUpMaterials.length;
+      reviewTotal += r.reviewMaterials.length;
+    });
+
+    return {
+      meetingsRisk,
+      summary: {
+        highRiskCount,
+        overdueFollowUpTotal,
+        shortageMaterialsTotal,
+        handoverPendingTotal,
+        pendingFollowUpTotal,
+        reviewTotal,
+        totalMeetings: meetingsRisk.length,
+        riskMeetingsCount: meetingsRisk.filter(r => r.riskLevel !== RISK_LEVEL.NONE).length,
+      },
+    };
+  }, [state.materials, state.meetings, state.rooms, state.handovers, state.handoverItems, state.riskFilters]);
 
   const groupedMaterials = useMemo(() => {
     const groups = {};
@@ -619,6 +871,7 @@ export function AppProvider({ children }) {
     filteredMaterials,
     groupedMaterials,
     summary,
+    riskAnalysis,
     updateMaterial,
     updateMaterialField,
     bulkUpdateStatus,
