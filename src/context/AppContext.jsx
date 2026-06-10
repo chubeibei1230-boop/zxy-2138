@@ -316,7 +316,7 @@ export function AppProvider({ children }) {
     const incompleteHandoverMap = new Map();
     state.handovers.forEach(h => {
       if (h.status !== HANDOVER_STATUS.COMPLETED && h.status !== HANDOVER_STATUS.ARCHIVED) {
-        const items = state.handoverItems.filter(hi => hi.handoverId === h.id);
+        const items = state.handoverItems.filter(hi => hi.handoverId === h.id && !hi.confirmed);
         items.forEach(item => {
           const material = all.find(m => m.id === item.materialId);
           if (!material) return;
@@ -351,11 +351,16 @@ export function AppProvider({ children }) {
           reviewMaterials: [],
           handoverIncompleteItems: [],
           totalShortageQty: 0,
+          involvedRoomIds: new Set(),
+          involvedPersons: new Set(),
         });
       }
 
       const riskData = meetingRiskMap.get(meeting.id);
       riskData.materials.push(material);
+      riskData.involvedRoomIds.add(material.roomId);
+      if (material.personInCharge) riskData.involvedPersons.add(material.personInCharge);
+      if (meeting.personInCharge) riskData.involvedPersons.add(meeting.personInCharge);
 
       const isShortage = material.preparedQty < material.requiredQty || material.status === MATERIAL_STATUS.SHORTAGE;
       if (isShortage) {
@@ -377,10 +382,23 @@ export function AppProvider({ children }) {
 
     incompleteHandoverMap.forEach((items, meetingId) => {
       if (meetingRiskMap.has(meetingId)) {
-        meetingRiskMap.get(meetingId).handoverIncompleteItems = items;
+        const riskData = meetingRiskMap.get(meetingId);
+        riskData.handoverIncompleteItems = items;
+        items.forEach(({ material }) => {
+          riskData.involvedRoomIds.add(material.roomId);
+          if (material.personInCharge) riskData.involvedPersons.add(material.personInCharge);
+        });
       } else {
         const meeting = meetingsMap.get(meetingId);
         if (meeting) {
+          const involvedRoomIds = new Set();
+          const involvedPersons = new Set();
+          items.forEach(({ material }) => {
+            involvedRoomIds.add(material.roomId);
+            if (material.personInCharge) involvedPersons.add(material.personInCharge);
+          });
+          if (meeting.personInCharge) involvedPersons.add(meeting.personInCharge);
+          involvedRoomIds.add(meeting.roomId);
           meetingRiskMap.set(meetingId, {
             meetingId: meeting.id,
             meeting,
@@ -393,6 +411,8 @@ export function AppProvider({ children }) {
             reviewMaterials: [],
             handoverIncompleteItems: items,
             totalShortageQty: 0,
+            involvedRoomIds,
+            involvedPersons,
           });
         }
       }
@@ -477,14 +497,30 @@ export function AppProvider({ children }) {
       };
     });
 
+    meetingsRisk = meetingsRisk.map(riskData => ({
+      ...riskData,
+      involvedRoomIds: Array.from(riskData.involvedRoomIds),
+      involvedPersons: Array.from(riskData.involvedPersons),
+    }));
+
     meetingsRisk = meetingsRisk.filter(risk => {
       const meeting = risk.meeting;
       if (dateRange.start && meeting.date < dateRange.start) return false;
       if (dateRange.end && meeting.date > dateRange.end) return false;
-      if (roomIds.length > 0 && !roomIds.includes(meeting.roomId)) return false;
-      if (personInCharges.length > 0 && !personInCharges.includes(meeting.personInCharge)) return false;
+      if (roomIds.length > 0) {
+        const hasMatch = roomIds.some(rid => risk.involvedRoomIds.includes(rid));
+        if (!hasMatch) return false;
+      }
+      if (personInCharges.length > 0) {
+        const hasMatch = personInCharges.some(pic => risk.involvedPersons.includes(pic));
+        if (!hasMatch) return false;
+      }
       if (meetingIds.length > 0 && !meetingIds.includes(meeting.id)) return false;
-      if (riskLevels.length > 0 && !riskLevels.includes(risk.riskLevel)) return false;
+      if (riskLevels.length === 0) {
+        if (risk.riskLevel === RISK_LEVEL.NONE) return false;
+      } else {
+        if (!riskLevels.includes(risk.riskLevel)) return false;
+      }
       return true;
     });
 

@@ -94,9 +94,16 @@ function RiskFilterBar() {
   const { riskFilters, rooms, meetings, materials } = state;
 
   const personOptions = useMemo(() => {
-    const set = new Set(materials.map(m => m.personInCharge).filter(Boolean));
+    const set = new Set();
+    materials.forEach(m => {
+      if (m.personInCharge) set.add(m.personInCharge);
+      if (m.followUpOwner) set.add(m.followUpOwner);
+    });
+    meetings.forEach(m => {
+      if (m.personInCharge) set.add(m.personInCharge);
+    });
     return Array.from(set).sort();
-  }, [materials]);
+  }, [materials, meetings]);
 
   const riskLevelOptions = [
     { value: RISK_LEVEL.HIGH, label: RISK_LEVEL_LABELS.high, color: RISK_LEVEL_COLORS.high },
