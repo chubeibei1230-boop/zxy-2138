@@ -49,7 +49,7 @@ export default function TaskModal() {
       });
       setActiveTab('detail');
     }
-  }, [task?.id]);
+  }, [task?.id, task?.owner, task?.progress, task?.remark]);
 
   const personOptions = useMemo(() => {
     const set = new Set();

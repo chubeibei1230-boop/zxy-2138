@@ -1575,6 +1575,7 @@ export function AppProvider({ children }) {
       const category = categoriesMap.get(material.categoryId);
       const fStatus = getFollowUpStatus(material);
       const isShortage = material.preparedQty < material.requiredQty || material.status === MATERIAL_STATUS.SHORTAGE;
+      const isReady = material.status === MATERIAL_STATUS.READY;
 
       const baseTask = {
         materialId: material.id,
@@ -1589,7 +1590,20 @@ export function AppProvider({ children }) {
         createdAt: material.createdAt || new Date().toISOString(),
       };
 
-      if (material.status !== MATERIAL_STATUS.READY && !isShortage) {
+      if (isReady) {
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_prep`,
+          sourceType: TASK_SOURCE_TYPE.MATERIAL_PREPARATION,
+          status: TASK_STATUS.COMPLETED,
+          description: `${category?.name || ''} - ${material.name}，需求${material.requiredQty}件，已备${material.preparedQty}件`,
+          progress: '已完成',
+          dueTime: meeting ? `${meeting.date}T${meeting.timeSlot?.split('-')[0] || '09:00'}` : '',
+          priority: 'low',
+          owner: material.personInCharge || '',
+          remark: '物料已备齐',
+        });
+      } else if (!isShortage) {
         const taskStatus = material.status === MATERIAL_STATUS.PREPARING ? TASK_STATUS.IN_PROGRESS : TASK_STATUS.PENDING;
         tasks.push({
           ...baseTask,
@@ -1620,7 +1634,20 @@ export function AppProvider({ children }) {
         });
       }
 
-      if (fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+      if (fStatus === FOLLOW_UP_STATUS.COMPLETED) {
+        tasks.push({
+          ...baseTask,
+          id: `task_mat_${material.id}_f_completed`,
+          sourceType: TASK_SOURCE_TYPE.FOLLOW_UP_PENDING,
+          status: TASK_STATUS.COMPLETED,
+          description: `${category?.name || ''} - ${material.name}，跟进事项已完成`,
+          progress: material.followUpNote || '已完成',
+          dueTime: material.followUpDueTime || '',
+          priority: 'low',
+          owner: material.followUpOwner || material.personInCharge || '',
+          remark: material.followUpNote || '',
+        });
+      } else if (fStatus === FOLLOW_UP_STATUS.OVERDUE) {
         tasks.push({
           ...baseTask,
           id: `task_mat_${material.id}_f_overdue`,
@@ -1665,9 +1692,8 @@ export function AppProvider({ children }) {
     });
 
     state.handoverItems.forEach(hi => {
-      if (hi.confirmed) return;
       const handover = state.handovers.find(h => h.id === hi.handoverId);
-      if (!handover || handover.status === HANDOVER_STATUS.COMPLETED || handover.status === HANDOVER_STATUS.ARCHIVED) return;
+      if (!handover || handover.status === HANDOVER_STATUS.ARCHIVED) return;
 
       const material = state.materials.find(m => m.id === hi.materialId);
       if (!material) return;
@@ -1675,10 +1701,12 @@ export function AppProvider({ children }) {
       const room = roomsMap.get(material.roomId);
       const category = categoriesMap.get(material.categoryId);
 
+      const isCompleted = hi.confirmed || handover.status === HANDOVER_STATUS.COMPLETED;
+
       tasks.push({
         id: `task_hi_${hi.id}_handover`,
         sourceType: TASK_SOURCE_TYPE.HANDOVER_INCOMPLETE,
-        status: TASK_STATUS.PENDING,
+        status: isCompleted ? TASK_STATUS.COMPLETED : TASK_STATUS.PENDING,
         materialId: material.id,
         material,
         handoverItemId: hi.id,
@@ -1690,11 +1718,13 @@ export function AppProvider({ children }) {
         room,
         category,
         title: `${handover.title} - ${material.name}`,
-        description: `${category?.name || ''} - ${material.name}，交接待确认`,
+        description: isCompleted
+          ? `${category?.name || ''} - ${material.name}，交接已完成`
+          : `${category?.name || ''} - ${material.name}，交接待确认`,
         personInCharge: handover.receiverPerson || material.personInCharge || meeting?.personInCharge || '',
-        progress: hi.itemRemark || '待交接确认',
+        progress: isCompleted ? (hi.itemRemark || '已完成交接') : (hi.itemRemark || '待交接确认'),
         dueTime: handover.handoverTime || '',
-        priority: isTaskOverdue({ dueTime: handover.handoverTime }) ? 'high' : 'medium',
+        priority: isCompleted ? 'low' : (isTaskOverdue({ dueTime: handover.handoverTime }) ? 'high' : 'medium'),
         owner: handover.receiverPerson || '',
         remark: hi.itemRemark || '',
         createdAt: handover.createdAt,
@@ -1702,21 +1732,28 @@ export function AppProvider({ children }) {
     });
 
     state.rectifications.forEach(rect => {
-      if (rect.status === RECTIFICATION_STATUS.COMPLETED) return;
-
       const material = state.materials.find(m => m.id === rect.materialId);
       const meeting = rect.meetingId ? meetingsMap.get(rect.meetingId) : null;
       const room = rect.roomId ? roomsMap.get(rect.roomId) : null;
       const category = material ? categoriesMap.get(material.categoryId) : null;
 
-      const sourceType = rect.status === RECTIFICATION_STATUS.PENDING
-        ? TASK_SOURCE_TYPE.RECTIFICATION_PENDING
-        : TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS;
+      let sourceType;
+      let taskStatus;
+      if (rect.status === RECTIFICATION_STATUS.COMPLETED) {
+        sourceType = TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS;
+        taskStatus = TASK_STATUS.COMPLETED;
+      } else if (rect.status === RECTIFICATION_STATUS.PENDING) {
+        sourceType = TASK_SOURCE_TYPE.RECTIFICATION_PENDING;
+        taskStatus = TASK_STATUS.PENDING;
+      } else {
+        sourceType = TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS;
+        taskStatus = TASK_STATUS.IN_PROGRESS;
+      }
 
       tasks.push({
         id: `task_rect_${rect.id}`,
         sourceType,
-        status: rect.status === RECTIFICATION_STATUS.PENDING ? TASK_STATUS.PENDING : TASK_STATUS.IN_PROGRESS,
+        status: taskStatus,
         rectificationId: rect.id,
         rectification: rect,
         materialId: rect.materialId,
@@ -1727,11 +1764,13 @@ export function AppProvider({ children }) {
         room,
         category,
         title: material ? material.name : `整改事项 ${rect.id}`,
-        description: `整改类型: ${RECTIFICATION_TYPE_LABELS[rect.type] || rect.type}`,
+        description: rect.status === RECTIFICATION_STATUS.COMPLETED
+          ? `整改已完成 - ${RECTIFICATION_TYPE_LABELS[rect.type] || rect.type}`
+          : `整改类型: ${RECTIFICATION_TYPE_LABELS[rect.type] || rect.type}`,
         personInCharge: rect.owner || meeting?.personInCharge || '',
-        progress: rect.progress || '',
+        progress: rect.progress || (rect.status === RECTIFICATION_STATUS.COMPLETED ? '已完成整改' : ''),
         dueTime: rect.dueTime || '',
-        priority: isTaskOverdue({ dueTime: rect.dueTime }) ? 'high' : (rect.status === RECTIFICATION_STATUS.PENDING ? 'medium' : 'low'),
+        priority: rect.status === RECTIFICATION_STATUS.COMPLETED ? 'low' : (isTaskOverdue({ dueTime: rect.dueTime }) ? 'high' : (rect.status === RECTIFICATION_STATUS.PENDING ? 'medium' : 'low')),
         owner: rect.owner || '',
         remark: rect.remark || '',
         createdAt: rect.createdAt,
@@ -2007,6 +2046,22 @@ export function AppProvider({ children }) {
 
     if (task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_PENDING || task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS) {
       await assignRectification(task.rectification || task, owner.trim(), task.dueTime);
+    } else if (task.sourceType === TASK_SOURCE_TYPE.HANDOVER_INCOMPLETE && task.handoverItemId) {
+      const handover = task.handover;
+      if (handover) {
+        await db.handovers.update(handover.id, {
+          receiverPerson: owner.trim(),
+          updatedAt: now,
+        });
+        dispatch({ type: 'UPDATE_HANDOVER', payload: { id: handover.id, receiverPerson: owner.trim(), updatedAt: now } });
+      }
+      if (task.materialId) {
+        await db.materials.update(task.materialId, {
+          personInCharge: owner.trim(),
+          updatedAt: now,
+        });
+        dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, personInCharge: owner.trim(), updatedAt: now }] });
+      }
     } else if (task.materialId) {
       await db.materials.update(task.materialId, {
         personInCharge: owner.trim(),
@@ -2039,10 +2094,17 @@ export function AppProvider({ children }) {
       await db.materials.update(task.materialId, updates);
       dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: task.materialId, ...updates }] });
     } else if (task.handoverItemId) {
-      await db.handoverItems.update(task.handoverItemId, {
+      const updates = {
         itemRemark: remark || progress,
-      });
-      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: task.handoverItemId, itemRemark: remark || progress }] });
+      };
+      await db.handoverItems.update(task.handoverItemId, updates);
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: task.handoverItemId, ...updates }] });
+
+      const handover = task.handover;
+      if (handover && handover.status === HANDOVER_STATUS.DRAFT) {
+        await db.handovers.update(handover.id, { status: HANDOVER_STATUS.IN_PROGRESS });
+        dispatch({ type: 'UPDATE_HANDOVER', payload: { id: handover.id, status: HANDOVER_STATUS.IN_PROGRESS } });
+      }
     }
 
     return true;
@@ -2052,7 +2114,19 @@ export function AppProvider({ children }) {
     const now = new Date().toISOString();
 
     if (task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_PENDING || task.sourceType === TASK_SOURCE_TYPE.RECTIFICATION_IN_PROGRESS) {
-      await completeRectification(task.rectification || task, completionRemark);
+      const rectItem = task.rectification || task;
+      if (rectItem._rectId || rectItem.id) {
+        const rectWithId = rectItem._rectId ? { ...rectItem, id: rectItem._rectId } : rectItem;
+        await confirmRectificationCompleted({ ...rectWithId, progress: completionRemark || rectWithId.progress });
+      } else {
+        await completeRectification(rectItem, completionRemark);
+        const newRect = state.rectifications.find(r =>
+          r.sourceType === rectItem.sourceType && r.sourceId === rectItem.sourceId && r.status === RECTIFICATION_STATUS.PENDING_REVIEW
+        );
+        if (newRect) {
+          await confirmRectificationCompleted({ ...newRect, progress: completionRemark || newRect.progress });
+        }
+      }
     } else if (task.sourceType === TASK_SOURCE_TYPE.MATERIAL_SHORTAGE && task.materialId) {
       const material = state.materials.find(m => m.id === task.materialId);
       if (material) {
@@ -2105,7 +2179,7 @@ export function AppProvider({ children }) {
     }
 
     return true;
-  }, [completeRectification, state.materials, state.handoverItems, updateHandoverItem]);
+  }, [completeRectification, confirmRectificationCompleted, state.materials, state.handoverItems, state.rectifications, updateHandoverItem]);
 
   const value = {
     state,
