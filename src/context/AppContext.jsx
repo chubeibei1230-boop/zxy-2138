@@ -699,20 +699,20 @@ export function AppProvider({ children }) {
         const existingRect = state.rectifications.find(
           r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.SHORTAGE
         );
-        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
-        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || !isShortage) {
+        const rectStatus = existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED) {
           items.push({
             ...baseItem,
             id: `mat_${material.id}_shortage`,
             type: RECTIFICATION_TYPE.SHORTAGE,
             status: rectStatus,
-            owner: material.rectificationOwner || existingRect?.owner || '',
-            progress: material.rectificationProgress || existingRect?.progress || '',
-            remark: material.rectificationRemark || existingRect?.remark || material.shortageNote || '',
-            dueTime: material.followUpDueTime || existingRect?.dueTime || '',
-            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
-            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
-            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            owner: existingRect?.owner || '',
+            progress: existingRect?.progress || '',
+            remark: existingRect?.remark || material.shortageNote || '',
+            dueTime: existingRect?.dueTime || '',
+            assignedAt: existingRect?.assignedAt || '',
+            completedAt: existingRect?.completedAt || '',
+            returnedReason: existingRect?.returnedReason || '',
             _rectId: existingRect?.id || null,
           });
         }
@@ -722,20 +722,20 @@ export function AppProvider({ children }) {
         const existingRect = state.rectifications.find(
           r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.REVIEW
         );
-        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
-        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || material.status === MATERIAL_STATUS.REVIEW) {
+        const rectStatus = existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED) {
           items.push({
             ...baseItem,
             id: `mat_${material.id}_review`,
             type: RECTIFICATION_TYPE.REVIEW,
             status: rectStatus,
-            owner: material.rectificationOwner || existingRect?.owner || '',
-            progress: material.rectificationProgress || existingRect?.progress || '',
-            remark: material.rectificationRemark || existingRect?.remark || '',
+            owner: existingRect?.owner || '',
+            progress: existingRect?.progress || '',
+            remark: existingRect?.remark || '',
             dueTime: existingRect?.dueTime || '',
-            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
-            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
-            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            assignedAt: existingRect?.assignedAt || '',
+            completedAt: existingRect?.completedAt || '',
+            returnedReason: existingRect?.returnedReason || '',
             _rectId: existingRect?.id || null,
           });
         }
@@ -745,20 +745,20 @@ export function AppProvider({ children }) {
         const existingRect = state.rectifications.find(
           r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE
         );
-        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
-        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+        const rectStatus = existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED) {
           items.push({
             ...baseItem,
             id: `mat_${material.id}_f_overdue`,
             type: RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE,
             status: rectStatus,
-            owner: material.rectificationOwner || existingRect?.owner || material.followUpOwner || '',
-            progress: material.rectificationProgress || existingRect?.progress || '',
-            remark: material.rectificationRemark || existingRect?.remark || material.followUpNote || '',
-            dueTime: material.followUpDueTime || existingRect?.dueTime || '',
-            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
-            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
-            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            owner: existingRect?.owner || material.followUpOwner || '',
+            progress: existingRect?.progress || '',
+            remark: existingRect?.remark || material.followUpNote || '',
+            dueTime: existingRect?.dueTime || material.followUpDueTime || '',
+            assignedAt: existingRect?.assignedAt || '',
+            completedAt: existingRect?.completedAt || '',
+            returnedReason: existingRect?.returnedReason || '',
             _rectId: existingRect?.id || null,
           });
         }
@@ -766,20 +766,20 @@ export function AppProvider({ children }) {
         const existingRect = state.rectifications.find(
           r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.FOLLOW_UP_PENDING
         );
-        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
-        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || fStatus === FOLLOW_UP_STATUS.PENDING) {
+        const rectStatus = existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED) {
           items.push({
             ...baseItem,
             id: `mat_${material.id}_f_pending`,
             type: RECTIFICATION_TYPE.FOLLOW_UP_PENDING,
             status: rectStatus,
-            owner: material.rectificationOwner || existingRect?.owner || material.followUpOwner || '',
-            progress: material.rectificationProgress || existingRect?.progress || '',
-            remark: material.rectificationRemark || existingRect?.remark || material.followUpNote || '',
-            dueTime: material.followUpDueTime || existingRect?.dueTime || '',
-            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
-            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
-            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            owner: existingRect?.owner || material.followUpOwner || '',
+            progress: existingRect?.progress || '',
+            remark: existingRect?.remark || material.followUpNote || '',
+            dueTime: existingRect?.dueTime || material.followUpDueTime || '',
+            assignedAt: existingRect?.assignedAt || '',
+            completedAt: existingRect?.completedAt || '',
+            returnedReason: existingRect?.returnedReason || '',
             _rectId: existingRect?.id || null,
           });
         }
@@ -805,7 +805,7 @@ export function AppProvider({ children }) {
       const existingRect = state.rectifications.find(
         r => r.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM && r.sourceId === hi.id && r.type === RECTIFICATION_TYPE.HANDOVER_INCOMPLETE
       );
-      const rectStatus = hi.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
+      const rectStatus = existingRect?.status || RECTIFICATION_STATUS.PENDING;
 
       items.push({
         id: `hi_${hi.id}_handover`,
@@ -825,13 +825,13 @@ export function AppProvider({ children }) {
         shortageQty: Math.max(0, material.requiredQty - (hi.confirmedPreparedQty ?? material.preparedQty)),
         type: RECTIFICATION_TYPE.HANDOVER_INCOMPLETE,
         status: rectStatus,
-        owner: hi.rectificationOwner || existingRect?.owner || handover.receiverPerson || '',
-        progress: hi.rectificationProgress || existingRect?.progress || '',
-        remark: hi.rectificationRemark || existingRect?.remark || hi.itemRemark || '',
-        dueTime: handover.handoverTime || existingRect?.dueTime || '',
-        assignedAt: hi.rectificationAssignedAt || existingRect?.assignedAt || '',
-        completedAt: hi.rectificationCompletedAt || existingRect?.completedAt || '',
-        returnedReason: hi.rectificationReturnedReason || existingRect?.returnedReason || '',
+        owner: existingRect?.owner || handover.receiverPerson || '',
+        progress: existingRect?.progress || '',
+        remark: existingRect?.remark || hi.itemRemark || '',
+        dueTime: existingRect?.dueTime || handover.handoverTime || '',
+        assignedAt: existingRect?.assignedAt || '',
+        completedAt: existingRect?.completedAt || '',
+        returnedReason: existingRect?.returnedReason || '',
         _rectId: existingRect?.id || null,
       });
     });
@@ -1286,20 +1286,6 @@ export function AppProvider({ children }) {
 
   const assignRectification = useCallback(async (rectItem, owner, dueTime = '') => {
     const now = new Date().toISOString();
-    const updates = {
-      rectificationOwner: owner,
-      rectificationStatus: RECTIFICATION_STATUS.IN_PROGRESS,
-      rectificationAssignedAt: now,
-    };
-    if (dueTime) updates.dueTime = dueTime;
-
-    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
-      await db.materials.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
-      await db.handoverItems.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    }
 
     let rectRecord = null;
     if (rectItem._rectId) {
@@ -1343,18 +1329,6 @@ export function AppProvider({ children }) {
 
   const updateRectificationProgress = useCallback(async (rectItem, progress, remark = '') => {
     const now = new Date().toISOString();
-    const updates = {
-      rectificationProgress: progress,
-      rectificationRemark: remark || rectItem.remark,
-    };
-
-    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
-      await db.materials.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
-      await db.handoverItems.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    }
 
     if (rectItem._rectId) {
       const recordUpdate = {
@@ -1369,26 +1343,6 @@ export function AppProvider({ children }) {
 
   const completeRectification = useCallback(async (rectItem, completionRemark = '') => {
     const now = new Date().toISOString();
-    const updates = {
-      rectificationStatus: RECTIFICATION_STATUS.PENDING_REVIEW,
-      rectificationProgress: '已完成处理，待复核确认',
-      rectificationCompletedAt: now,
-    };
-    if (completionRemark) {
-      updates.rectificationRemark = completionRemark;
-    }
-
-    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
-      const material = state.materials.find(m => m.id === rectItem.sourceId);
-      if (material && rectItem.type === RECTIFICATION_TYPE.REVIEW) {
-        updates.status = MATERIAL_STATUS.PREPARING;
-      }
-      await db.materials.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
-      await db.handoverItems.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    }
 
     if (rectItem._rectId) {
       const recordUpdate = {
@@ -1400,39 +1354,67 @@ export function AppProvider({ children }) {
       };
       await db.rectifications.update(rectItem._rectId, recordUpdate);
       dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    } else {
+      const rectRecord = {
+        sourceType: rectItem.sourceType,
+        sourceId: rectItem.sourceId,
+        materialId: rectItem.materialId,
+        meetingId: rectItem.meetingId,
+        roomId: rectItem.roomId,
+        type: rectItem.type,
+        status: RECTIFICATION_STATUS.PENDING_REVIEW,
+        owner: rectItem.owner || '',
+        creator: '',
+        progress: '已完成处理，待复核确认',
+        remark: completionRemark || rectItem.remark || '',
+        dueTime: rectItem.dueTime || '',
+        assignedAt: rectItem.assignedAt || now,
+        completedAt: now,
+        returnedReason: '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const id = await db.rectifications.add(rectRecord);
+      rectRecord.id = id;
+      dispatch({ type: 'ADD_RECTIFICATIONS', payload: [rectRecord] });
     }
   }, [state.materials, state.handoverItems]);
 
   const confirmRectificationCompleted = useCallback(async (rectItem) => {
     const now = new Date().toISOString();
-    const updates = {
-      rectificationStatus: RECTIFICATION_STATUS.COMPLETED,
-    };
 
     if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
       const material = state.materials.find(m => m.id === rectItem.sourceId);
       if (material) {
+        const matUpdates = {};
         if (rectItem.type === RECTIFICATION_TYPE.SHORTAGE && material.preparedQty < material.requiredQty) {
-          updates.preparedQty = material.requiredQty;
+          matUpdates.preparedQty = material.requiredQty;
+          if (material.status === MATERIAL_STATUS.SHORTAGE) {
+            matUpdates.status = MATERIAL_STATUS.READY;
+          }
         }
         if (rectItem.type === RECTIFICATION_TYPE.REVIEW && material.status === MATERIAL_STATUS.REVIEW) {
-          updates.status = MATERIAL_STATUS.READY;
+          matUpdates.status = MATERIAL_STATUS.READY;
           if (material.preparedQty < material.requiredQty) {
-            updates.preparedQty = material.requiredQty;
+            matUpdates.preparedQty = material.requiredQty;
           }
         }
         if ((rectItem.type === RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE || rectItem.type === RECTIFICATION_TYPE.FOLLOW_UP_PENDING)
           && material.followUpStatus !== FOLLOW_UP_STATUS.COMPLETED) {
-          updates.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
-          updates.followUpCompletedAt = now;
+          matUpdates.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
+          matUpdates.followUpCompletedAt = now;
+        }
+        if (Object.keys(matUpdates).length > 0) {
+          await db.materials.update(rectItem.sourceId, matUpdates);
+          dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...matUpdates }] });
         }
       }
-      await db.materials.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
     } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
       const hi = state.handoverItems.find(h => h.id === rectItem.sourceId);
       if (hi && !hi.confirmed) {
-        updates.confirmed = true;
+        const hiUpdates = { confirmed: true };
+        await db.handoverItems.update(rectItem.sourceId, hiUpdates);
+        dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...hiUpdates }] });
         const handover = state.handovers.find(h => h.id === hi.handoverId);
         if (handover && handover.status === HANDOVER_STATUS.DRAFT) {
           await db.handovers.update(hi.handoverId, { status: HANDOVER_STATUS.IN_PROGRESS });
@@ -1453,8 +1435,6 @@ export function AppProvider({ children }) {
           }
         }
       }
-      await db.handoverItems.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
     }
 
     if (rectItem._rectId) {
@@ -1465,24 +1445,34 @@ export function AppProvider({ children }) {
       };
       await db.rectifications.update(rectItem._rectId, recordUpdate);
       dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    } else {
+      const rectRecord = {
+        sourceType: rectItem.sourceType,
+        sourceId: rectItem.sourceId,
+        materialId: rectItem.materialId,
+        meetingId: rectItem.meetingId,
+        roomId: rectItem.roomId,
+        type: rectItem.type,
+        status: RECTIFICATION_STATUS.COMPLETED,
+        owner: rectItem.owner || '',
+        creator: '',
+        progress: rectItem.progress || '',
+        remark: rectItem.remark || '',
+        dueTime: rectItem.dueTime || '',
+        assignedAt: rectItem.assignedAt || '',
+        completedAt: now,
+        returnedReason: '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const id = await db.rectifications.add(rectRecord);
+      rectRecord.id = id;
+      dispatch({ type: 'ADD_RECTIFICATIONS', payload: [rectRecord] });
     }
   }, [state.materials, state.handoverItems, state.handovers]);
 
   const returnRectificationForReview = useCallback(async (rectItem, returnReason) => {
     const now = new Date().toISOString();
-    const updates = {
-      rectificationStatus: RECTIFICATION_STATUS.IN_PROGRESS,
-      rectificationReturnedReason: returnReason || '',
-      rectificationCompletedAt: '',
-    };
-
-    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
-      await db.materials.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
-      await db.handoverItems.update(rectItem.sourceId, updates);
-      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
-    }
 
     if (rectItem._rectId) {
       const recordUpdate = {
@@ -1493,6 +1483,29 @@ export function AppProvider({ children }) {
       };
       await db.rectifications.update(rectItem._rectId, recordUpdate);
       dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    } else {
+      const rectRecord = {
+        sourceType: rectItem.sourceType,
+        sourceId: rectItem.sourceId,
+        materialId: rectItem.materialId,
+        meetingId: rectItem.meetingId,
+        roomId: rectItem.roomId,
+        type: rectItem.type,
+        status: RECTIFICATION_STATUS.IN_PROGRESS,
+        owner: rectItem.owner || '',
+        creator: '',
+        progress: rectItem.progress || '',
+        remark: rectItem.remark || '',
+        dueTime: rectItem.dueTime || '',
+        assignedAt: rectItem.assignedAt || '',
+        completedAt: '',
+        returnedReason: returnReason || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const id = await db.rectifications.add(rectRecord);
+      rectRecord.id = id;
+      dispatch({ type: 'ADD_RECTIFICATIONS', payload: [rectRecord] });
     }
   }, [state.materials, state.handoverItems]);
 

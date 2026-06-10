@@ -19,7 +19,7 @@ function getDefaultDueTime() {
 
 export default function RectificationModal() {
   const {
-    state, dispatch, selectedRectification,
+    state, dispatch, selectedRectification, rectificationItems,
     assignRectification, updateRectificationProgress,
     completeRectification, confirmRectificationCompleted,
     returnRectificationForReview,
@@ -60,8 +60,11 @@ export default function RectificationModal() {
       if (h.handoverPerson) set.add(h.handoverPerson);
       if (h.receiverPerson) set.add(h.receiverPerson);
     });
+    rectificationItems.forEach(item => {
+      if (item.owner) set.add(item.owner);
+    });
     return Array.from(set).sort();
-  }, [materials, handovers]);
+  }, [materials, handovers, rectificationItems]);
 
   if (!showRectificationModal || !item) return null;
 

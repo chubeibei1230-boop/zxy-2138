@@ -87,7 +87,7 @@ function RectificationSummaryCards() {
 }
 
 function RectificationFilterBar() {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, rectificationItems } = useApp();
   const { rectificationFilters, rooms, meetings, materials, handovers } = state;
 
   const personOptions = useMemo(() => {
@@ -95,14 +95,16 @@ function RectificationFilterBar() {
     materials.forEach(m => {
       if (m.personInCharge) set.add(m.personInCharge);
       if (m.followUpOwner) set.add(m.followUpOwner);
-      if (m.rectificationOwner) set.add(m.rectificationOwner);
     });
     handovers.forEach(h => {
       if (h.handoverPerson) set.add(h.handoverPerson);
       if (h.receiverPerson) set.add(h.receiverPerson);
     });
+    rectificationItems.forEach(item => {
+      if (item.owner) set.add(item.owner);
+    });
     return Array.from(set).sort();
-  }, [materials, handovers]);
+  }, [materials, handovers, rectificationItems]);
 
   const typeOptions = Object.entries(RECTIFICATION_TYPE).map(([key, value]) => ({
     value,
