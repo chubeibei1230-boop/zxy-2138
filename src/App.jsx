@@ -7,9 +7,11 @@ import DetailPanel from './components/DetailPanel';
 import HandoverEntry from './components/HandoverEntry';
 import HandoverModal from './components/HandoverModal';
 import RiskDashboard from './components/RiskDashboard';
+import RectificationCenter from './components/RectificationCenter';
+import RectificationModal from './components/RectificationModal';
 
 function AppContent() {
-  const { state, dispatch, riskAnalysis } = useApp();
+  const { state, dispatch, riskAnalysis, rectificationSummary } = useApp();
   const { loading, reviewMode, currentView } = state;
 
   if (loading) {
@@ -25,11 +27,24 @@ function AppContent() {
       <div className="app-container">
         <RiskDashboard />
         <HandoverModal />
+        <RectificationModal />
+      </div>
+    );
+  }
+
+  if (currentView === RISK_VIEW.RECTIFICATION) {
+    return (
+      <div className="app-container">
+        <RectificationCenter />
+        <HandoverModal />
+        <RectificationModal />
       </div>
     );
   }
 
   const { summary } = riskAnalysis;
+  const rectPendingCount = rectificationSummary?.byStatus?.pending || 0;
+  const rectInProgressCount = rectificationSummary?.byStatus?.in_progress || 0;
 
   return (
     <div className="app-container">
@@ -39,6 +54,35 @@ function AppContent() {
           会议物料分组准备
         </div>
         <div className="header-actions">
+          <button
+            className="btn"
+            style={{
+              background: (rectPendingCount + rectInProgressCount) > 0
+                ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                : '#f1f5f9',
+              color: (rectPendingCount + rectInProgressCount) > 0 ? '#fff' : '#475569',
+              border: (rectPendingCount + rectInProgressCount) > 0 ? 'none' : '1px solid #e2e8f0',
+            }}
+            onClick={() => dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.RECTIFICATION })}
+            title="会前整改闭环中心，处理所有异常事项"
+          >
+            🔧 整改中心
+            {(rectPendingCount + rectInProgressCount) > 0 && (
+              <span
+                style={{
+                  marginLeft: '6px',
+                  padding: '1px 8px',
+                  borderRadius: '10px',
+                  background: (rectPendingCount + rectInProgressCount) > 0 ? 'rgba(255,255,255,0.25)' : '#fef3c7',
+                  color: (rectPendingCount + rectInProgressCount) > 0 ? '#fff' : '#b45309',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                }}
+              >
+                {rectPendingCount + rectInProgressCount}
+              </span>
+            )}
+          </button>
           <button
             className="btn"
             style={{
@@ -87,6 +131,7 @@ function AppContent() {
       <DetailPanel />
 
       <HandoverModal />
+      <RectificationModal />
     </div>
   );
 }

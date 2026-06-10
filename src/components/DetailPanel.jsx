@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, RISK_VIEW } from '../context/AppContext';
 import {
   STATUS_LABELS, STATUS_COLORS, MATERIAL_STATUS,
   FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_LABELS, FOLLOW_UP_STATUS_COLORS,
@@ -11,6 +11,27 @@ export default function DetailPanel() {
   const { state, dispatch, updateMaterial, updateMaterialField, deleteMaterials, markFollowUpCompleted } = useApp();
   const { detailMaterial, mobileDetailExpanded, rooms, categories, meetings } = state;
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+
+  const hasAbnormal = useMemo(() => {
+    if (!detailMaterial) return false;
+    const isShortage = detailMaterial.preparedQty < detailMaterial.requiredQty;
+    const isReview = detailMaterial.status === MATERIAL_STATUS.REVIEW;
+    const fStatus = getFollowUpStatus(detailMaterial);
+    const isFollowUpProblem = fStatus === FOLLOW_UP_STATUS.PENDING || fStatus === FOLLOW_UP_STATUS.OVERDUE;
+    return isShortage || isReview || isFollowUpProblem;
+  }, [detailMaterial]);
+
+  const handleGoRectification = () => {
+    if (!detailMaterial) return;
+    const meetingId = detailMaterial.meetingId;
+    if (meetingId) {
+      dispatch({ type: 'SET_RECTIFICATION_FILTERS', payload: { meetingIds: [meetingId] } });
+    }
+    dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.RECTIFICATION });
+    setTimeout(() => {
+      dispatch({ type: 'SET_SELECTED_RECTIFICATION_QUERY', payload: { materialId: detailMaterial.id } });
+    }, 50);
+  };
 
   const relatedMaterials = useMemo(() => {
     if (!detailMaterial) return [];
@@ -152,6 +173,20 @@ export default function DetailPanel() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          {hasAbnormal && (
+            <button
+              className="btn btn-sm"
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                color: '#fff',
+                border: 'none',
+              }}
+              onClick={handleGoRectification}
+              title="前往整改闭环中心处理此异常物料"
+            >
+              🔧 去整改
+            </button>
+          )}
           <button className="btn btn-success btn-sm" onClick={markReady}>
             ✅ 标记已备齐
           </button>

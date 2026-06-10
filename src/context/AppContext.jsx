@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE } from '../db';
+import { db, seedDatabase, MATERIAL_STATUS, HANDOVER_STATUS, HANDOVER_SOURCE_TYPE, getLocalDatetimeLocal, FOLLOW_UP_STATUS, getFollowUpStatus, RISK_LEVEL, RISK_FACTOR_TYPE, RECTIFICATION_TYPE, RECTIFICATION_STATUS, RECTIFICATION_SOURCE_TYPE } from '../db';
 
 const AppContext = createContext(null);
 
@@ -12,6 +12,14 @@ export const GROUP_BY = {
 export const RISK_VIEW = {
   MAIN: 'main',
   DASHBOARD: 'dashboard',
+  RECTIFICATION: 'rectification',
+};
+
+export const RECTIFICATION_GROUP_BY = {
+  MEETING: 'meeting',
+  ROOM: 'room',
+  PERSON: 'person',
+  TYPE: 'type',
 };
 
 const initialState = {
@@ -21,6 +29,7 @@ const initialState = {
   materials: [],
   handovers: [],
   handoverItems: [],
+  rectifications: [],
   loading: true,
   filters: {
     dateRange: { start: '', end: '' },
@@ -48,6 +57,20 @@ const initialState = {
   },
   selectedRiskMeetingId: null,
   riskMobileDetailExpanded: false,
+  rectificationGroupBy: RECTIFICATION_GROUP_BY.TYPE,
+  rectificationFilters: {
+    dateRange: { start: '', end: '' },
+    roomIds: [],
+    personInCharges: [],
+    meetingIds: [],
+    types: [],
+    statuses: [],
+    owners: [],
+  },
+  selectedRectificationId: null,
+  selectedRectificationQuery: null,
+  showRectificationModal: false,
+  rectificationMobileDetailExpanded: false,
 };
 
 function appReducer(state, action) {
@@ -137,6 +160,23 @@ function appReducer(state, action) {
         handovers: action.payload.handovers,
         handoverItems: action.payload.handoverItems,
       };
+    case 'SET_RECTIFICATIONS':
+      return { ...state, rectifications: action.payload };
+    case 'UPDATE_RECTIFICATIONS': {
+      const updatedMap = new Map(action.payload.map(r => [r.id, r]));
+      return {
+        ...state,
+        rectifications: state.rectifications.map(r => updatedMap.has(r.id) ? { ...r, ...updatedMap.get(r.id) } : r),
+      };
+    }
+    case 'ADD_RECTIFICATIONS':
+      return { ...state, rectifications: [...state.rectifications, ...action.payload] };
+    case 'DELETE_RECTIFICATIONS':
+      return {
+        ...state,
+        rectifications: state.rectifications.filter(r => !action.payload.includes(r.id)),
+        selectedRectificationId: action.payload.includes(state.selectedRectificationId) ? null : state.selectedRectificationId,
+      };
     case 'OPEN_HANDOVER_MODAL':
       return {
         ...state,
@@ -190,6 +230,24 @@ function appReducer(state, action) {
       return { ...state, selectedRiskMeetingId: action.payload, riskMobileDetailExpanded: true };
     case 'TOGGLE_RISK_MOBILE_DETAIL':
       return { ...state, riskMobileDetailExpanded: !state.riskMobileDetailExpanded };
+    case 'SET_RECTIFICATION_GROUP_BY':
+      return { ...state, rectificationGroupBy: action.payload };
+    case 'SET_RECTIFICATION_FILTERS':
+      return {
+        ...state,
+        rectificationFilters: { ...state.rectificationFilters, ...action.payload },
+        selectedRectificationId: null,
+      };
+    case 'SET_SELECTED_RECTIFICATION':
+      return { ...state, selectedRectificationId: action.payload, rectificationMobileDetailExpanded: true };
+    case 'TOGGLE_RECTIFICATION_MOBILE_DETAIL':
+      return { ...state, rectificationMobileDetailExpanded: !state.rectificationMobileDetailExpanded };
+    case 'OPEN_RECTIFICATION_MODAL':
+      return { ...state, showRectificationModal: true, selectedRectificationId: action.payload?.id ?? state.selectedRectificationId };
+    case 'CLOSE_RECTIFICATION_MODAL':
+      return { ...state, showRectificationModal: false };
+    case 'SET_SELECTED_RECTIFICATION_QUERY':
+      return { ...state, selectedRectificationQuery: action.payload };
     default:
       return state;
   }
@@ -201,16 +259,18 @@ export function AppProvider({ children }) {
   useEffect(() => {
     async function init() {
       await seedDatabase();
-      const [rooms, categories, meetings, materials, handovers, handoverItems] = await Promise.all([
+      const [rooms, categories, meetings, materials, handovers, handoverItems, rectifications] = await Promise.all([
         db.rooms.toArray(),
         db.categories.toArray(),
         db.meetings.toArray(),
         db.materials.toArray(),
         db.handovers.toArray(),
         db.handoverItems.toArray(),
+        db.rectifications.toArray(),
       ]);
       dispatch({ type: 'SET_DATA', payload: { rooms, categories, meetings, materials } });
       dispatch({ type: 'SET_HANDOVER_DATA', payload: { handovers, handoverItems } });
+      dispatch({ type: 'SET_RECTIFICATIONS', payload: rectifications });
     }
     init();
   }, []);
@@ -604,6 +664,329 @@ export function AppProvider({ children }) {
     return Object.values(groups).sort((a, b) => a.label.localeCompare(b.label));
   }, [filteredMaterials, state.groupBy, state.rooms]);
 
+  const rectificationItems = useMemo(() => {
+    const items = [];
+    const meetingsMap = new Map();
+    state.meetings.forEach(m => meetingsMap.set(m.id, m));
+    const roomsMap = new Map();
+    state.rooms.forEach(r => roomsMap.set(r.id, r));
+    const categoriesMap = new Map();
+    state.categories.forEach(c => categoriesMap.set(c.id, c));
+
+    state.materials.forEach(material => {
+      const meeting = meetingsMap.get(material.meetingId);
+      const room = roomsMap.get(material.roomId);
+      const category = categoriesMap.get(material.categoryId);
+      const fStatus = getFollowUpStatus(material);
+      const isShortage = material.preparedQty < material.requiredQty || material.status === MATERIAL_STATUS.SHORTAGE;
+
+      const baseItem = {
+        id: `mat_${material.id}_`,
+        sourceType: RECTIFICATION_SOURCE_TYPE.MATERIAL,
+        sourceId: material.id,
+        materialId: material.id,
+        material,
+        meetingId: material.meetingId,
+        meeting,
+        roomId: material.roomId,
+        room,
+        category,
+        personInCharge: material.personInCharge || meeting?.personInCharge || '',
+        shortageQty: Math.max(0, material.requiredQty - material.preparedQty),
+      };
+
+      if (isShortage) {
+        const existingRect = state.rectifications.find(
+          r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.SHORTAGE
+        );
+        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || !isShortage) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_shortage`,
+            type: RECTIFICATION_TYPE.SHORTAGE,
+            status: rectStatus,
+            owner: material.rectificationOwner || existingRect?.owner || '',
+            progress: material.rectificationProgress || existingRect?.progress || '',
+            remark: material.rectificationRemark || existingRect?.remark || material.shortageNote || '',
+            dueTime: material.followUpDueTime || existingRect?.dueTime || '',
+            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
+            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
+            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            _rectId: existingRect?.id || null,
+          });
+        }
+      }
+
+      if (material.status === MATERIAL_STATUS.REVIEW) {
+        const existingRect = state.rectifications.find(
+          r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.REVIEW
+        );
+        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || material.status === MATERIAL_STATUS.REVIEW) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_review`,
+            type: RECTIFICATION_TYPE.REVIEW,
+            status: rectStatus,
+            owner: material.rectificationOwner || existingRect?.owner || '',
+            progress: material.rectificationProgress || existingRect?.progress || '',
+            remark: material.rectificationRemark || existingRect?.remark || '',
+            dueTime: existingRect?.dueTime || '',
+            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
+            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
+            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            _rectId: existingRect?.id || null,
+          });
+        }
+      }
+
+      if (fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+        const existingRect = state.rectifications.find(
+          r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE
+        );
+        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || fStatus === FOLLOW_UP_STATUS.OVERDUE) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_f_overdue`,
+            type: RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE,
+            status: rectStatus,
+            owner: material.rectificationOwner || existingRect?.owner || material.followUpOwner || '',
+            progress: material.rectificationProgress || existingRect?.progress || '',
+            remark: material.rectificationRemark || existingRect?.remark || material.followUpNote || '',
+            dueTime: material.followUpDueTime || existingRect?.dueTime || '',
+            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
+            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
+            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            _rectId: existingRect?.id || null,
+          });
+        }
+      } else if (fStatus === FOLLOW_UP_STATUS.PENDING) {
+        const existingRect = state.rectifications.find(
+          r => r.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL && r.sourceId === material.id && r.type === RECTIFICATION_TYPE.FOLLOW_UP_PENDING
+        );
+        const rectStatus = material.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
+        if (rectStatus !== RECTIFICATION_STATUS.COMPLETED || fStatus === FOLLOW_UP_STATUS.PENDING) {
+          items.push({
+            ...baseItem,
+            id: `mat_${material.id}_f_pending`,
+            type: RECTIFICATION_TYPE.FOLLOW_UP_PENDING,
+            status: rectStatus,
+            owner: material.rectificationOwner || existingRect?.owner || material.followUpOwner || '',
+            progress: material.rectificationProgress || existingRect?.progress || '',
+            remark: material.rectificationRemark || existingRect?.remark || material.followUpNote || '',
+            dueTime: material.followUpDueTime || existingRect?.dueTime || '',
+            assignedAt: material.rectificationAssignedAt || existingRect?.assignedAt || '',
+            completedAt: material.rectificationCompletedAt || existingRect?.completedAt || '',
+            returnedReason: material.rectificationReturnedReason || existingRect?.returnedReason || '',
+            _rectId: existingRect?.id || null,
+          });
+        }
+      }
+    });
+
+    state.handovers.forEach(handover => {
+      if (handover.status === HANDOVER_STATUS.COMPLETED || handover.status === HANDOVER_STATUS.ARCHIVED) return;
+      const handoverMeetingId = handover;
+    });
+
+    state.handoverItems.forEach(hi => {
+      if (hi.confirmed) return;
+      const handover = state.handovers.find(h => h.id === hi.handoverId);
+      if (!handover || handover.status === HANDOVER_STATUS.COMPLETED || handover.status === HANDOVER_STATUS.ARCHIVED) return;
+
+      const material = state.materials.find(m => m.id === hi.materialId);
+      if (!material) return;
+      const meeting = meetingsMap.get(material.meetingId);
+      const room = roomsMap.get(material.roomId);
+      const category = categoriesMap.get(material.categoryId);
+
+      const existingRect = state.rectifications.find(
+        r => r.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM && r.sourceId === hi.id && r.type === RECTIFICATION_TYPE.HANDOVER_INCOMPLETE
+      );
+      const rectStatus = hi.rectificationStatus || existingRect?.status || RECTIFICATION_STATUS.PENDING;
+
+      items.push({
+        id: `hi_${hi.id}_handover`,
+        sourceType: RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM,
+        sourceId: hi.id,
+        handoverItemId: hi.id,
+        handover,
+        handoverItem: hi,
+        materialId: material.id,
+        material,
+        meetingId: material.meetingId,
+        meeting,
+        roomId: material.roomId,
+        room,
+        category,
+        personInCharge: handover.receiverPerson || material.personInCharge || meeting?.personInCharge || '',
+        shortageQty: Math.max(0, material.requiredQty - (hi.confirmedPreparedQty ?? material.preparedQty)),
+        type: RECTIFICATION_TYPE.HANDOVER_INCOMPLETE,
+        status: rectStatus,
+        owner: hi.rectificationOwner || existingRect?.owner || handover.receiverPerson || '',
+        progress: hi.rectificationProgress || existingRect?.progress || '',
+        remark: hi.rectificationRemark || existingRect?.remark || hi.itemRemark || '',
+        dueTime: handover.handoverTime || existingRect?.dueTime || '',
+        assignedAt: hi.rectificationAssignedAt || existingRect?.assignedAt || '',
+        completedAt: hi.rectificationCompletedAt || existingRect?.completedAt || '',
+        returnedReason: hi.rectificationReturnedReason || existingRect?.returnedReason || '',
+        _rectId: existingRect?.id || null,
+      });
+    });
+
+    return items;
+  }, [state.materials, state.handovers, state.handoverItems, state.meetings, state.rooms, state.categories, state.rectifications]);
+
+  const filteredRectificationItems = useMemo(() => {
+    const { dateRange, roomIds, personInCharges, meetingIds, types, statuses, owners } = state.rectificationFilters;
+    let result = [...rectificationItems];
+
+    if (dateRange.start) {
+      result = result.filter(item => item.meeting && item.meeting.date >= dateRange.start);
+    }
+    if (dateRange.end) {
+      result = result.filter(item => item.meeting && item.meeting.date <= dateRange.end);
+    }
+    if (roomIds.length > 0) {
+      result = result.filter(item => roomIds.includes(item.roomId));
+    }
+    if (personInCharges.length > 0) {
+      result = result.filter(item => personInCharges.includes(item.personInCharge));
+    }
+    if (meetingIds.length > 0) {
+      result = result.filter(item => meetingIds.includes(item.meetingId));
+    }
+    if (types.length > 0) {
+      result = result.filter(item => types.includes(item.type));
+    }
+    if (statuses.length > 0) {
+      result = result.filter(item => statuses.includes(item.status));
+    }
+    if (owners.length > 0) {
+      result = result.filter(item => owners.includes(item.owner));
+    }
+
+    return result;
+  }, [rectificationItems, state.rectificationFilters]);
+
+  const rectificationSummary = useMemo(() => {
+    const items = rectificationItems;
+    const total = items.length;
+    const typeStats = {};
+    const statusStats = {};
+    const byMeeting = new Map();
+    const byRoom = new Map();
+    const byPerson = new Map();
+    const byOwner = new Map();
+
+    Object.values(RECTIFICATION_TYPE).forEach(v => typeStats[v] = 0);
+    Object.values(RECTIFICATION_STATUS).forEach(v => statusStats[v] = 0);
+
+    items.forEach(item => {
+      typeStats[item.type] = (typeStats[item.type] || 0) + 1;
+      statusStats[item.status] = (statusStats[item.status] || 0) + 1;
+
+      if (item.meetingId) {
+        if (!byMeeting.has(item.meetingId)) byMeeting.set(item.meetingId, []);
+        byMeeting.get(item.meetingId).push(item);
+      }
+      if (item.roomId) {
+        if (!byRoom.has(item.roomId)) byRoom.set(item.roomId, []);
+        byRoom.get(item.roomId).push(item);
+      }
+      const person = item.personInCharge;
+      if (person) {
+        if (!byPerson.has(person)) byPerson.set(person, []);
+        byPerson.get(person).push(item);
+      }
+      const owner = item.owner;
+      if (owner) {
+        if (!byOwner.has(owner)) byOwner.set(owner, []);
+        byOwner.get(owner).push(item);
+      }
+    });
+
+    const pendingCount = statusStats[RECTIFICATION_STATUS.PENDING] || 0;
+    const inProgressCount = statusStats[RECTIFICATION_STATUS.IN_PROGRESS] || 0;
+    const pendingReviewCount = statusStats[RECTIFICATION_STATUS.PENDING_REVIEW] || 0;
+    const completedCount = statusStats[RECTIFICATION_STATUS.COMPLETED] || 0;
+    const activeCount = total - completedCount;
+
+    return {
+      total,
+      activeCount,
+      typeStats,
+      statusStats,
+      pendingCount,
+      inProgressCount,
+      pendingReviewCount,
+      completedCount,
+      byMeeting,
+      byRoom,
+      byPerson,
+      byOwner,
+    };
+  }, [rectificationItems]);
+
+  const groupedRectifications = useMemo(() => {
+    const { rectificationGroupBy } = state;
+    const groups = {};
+    const getKey = (item) => {
+      switch (rectificationGroupBy) {
+        case RECTIFICATION_GROUP_BY.MEETING:
+          return String(item.meetingId || 'unknown');
+        case RECTIFICATION_GROUP_BY.ROOM:
+          return String(item.roomId || 'unknown');
+        case RECTIFICATION_GROUP_BY.PERSON:
+          return item.personInCharge || item.owner || '未分配';
+        case RECTIFICATION_GROUP_BY.TYPE:
+          return item.type;
+        default:
+          return item.type;
+      }
+    };
+    const getLabel = (item) => {
+      switch (rectificationGroupBy) {
+        case RECTIFICATION_GROUP_BY.MEETING:
+          return item.meeting ? `${item.meeting.title} · ${item.meeting.date}` : '未知会议';
+        case RECTIFICATION_GROUP_BY.ROOM:
+          return item.room?.name || '未知会议室';
+        case RECTIFICATION_GROUP_BY.PERSON:
+          return item.personInCharge || item.owner || '未分配';
+        case RECTIFICATION_GROUP_BY.TYPE: {
+          const labels = {
+            [RECTIFICATION_TYPE.SHORTAGE]: '📦 短缺',
+            [RECTIFICATION_TYPE.REVIEW]: '🔍 需复核',
+            [RECTIFICATION_TYPE.FOLLOW_UP_PENDING]: '⏩ 待跟进',
+            [RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE]: '⏰ 逾期跟进',
+            [RECTIFICATION_TYPE.HANDOVER_INCOMPLETE]: '🤝 交接未完成',
+          };
+          return labels[item.type] || item.type;
+        }
+        default:
+          return '未分组';
+      }
+    };
+
+    filteredRectificationItems.forEach(item => {
+      const key = getKey(item);
+      if (!groups[key]) {
+        groups[key] = { key, label: getLabel(item), items: [] };
+      }
+      groups[key].items.push(item);
+    });
+
+    return Object.values(groups).sort((a, b) => {
+      const statusPriority = { pending: 0, in_progress: 1, pending_review: 2, completed: 3 };
+      const aMaxStatus = Math.min(...a.items.map(i => statusPriority[i.status] ?? 4));
+      const bMaxStatus = Math.min(...b.items.map(i => statusPriority[i.status] ?? 4));
+      if (aMaxStatus !== bMaxStatus) return aMaxStatus - bMaxStatus;
+      return a.label.localeCompare(b.label);
+    });
+  }, [filteredRectificationItems, state.rectificationGroupBy]);
+
   const updateMaterial = useCallback(async (material) => {
     await db.materials.update(material.id, material);
     dispatch({ type: 'UPDATE_MATERIALS', payload: [material] });
@@ -901,6 +1284,238 @@ export function AppProvider({ children }) {
     return getHandoverWithItems(state.currentHandoverId);
   }, [state.currentHandoverId, getHandoverWithItems]);
 
+  const assignRectification = useCallback(async (rectItem, owner, dueTime = '') => {
+    const now = new Date().toISOString();
+    const updates = {
+      rectificationOwner: owner,
+      rectificationStatus: RECTIFICATION_STATUS.IN_PROGRESS,
+      rectificationAssignedAt: now,
+    };
+    if (dueTime) updates.dueTime = dueTime;
+
+    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
+      await db.materials.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
+      await db.handoverItems.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    }
+
+    let rectRecord = null;
+    if (rectItem._rectId) {
+      rectRecord = {
+        id: rectItem._rectId,
+        owner,
+        status: RECTIFICATION_STATUS.IN_PROGRESS,
+        assignedAt: now,
+        dueTime: dueTime || rectItem.dueTime,
+        updatedAt: now,
+      };
+      await db.rectifications.update(rectItem._rectId, rectRecord);
+    } else {
+      rectRecord = {
+        sourceType: rectItem.sourceType,
+        sourceId: rectItem.sourceId,
+        materialId: rectItem.materialId,
+        meetingId: rectItem.meetingId,
+        roomId: rectItem.roomId,
+        type: rectItem.type,
+        status: RECTIFICATION_STATUS.IN_PROGRESS,
+        owner,
+        creator: '',
+        progress: rectItem.progress || '',
+        remark: rectItem.remark || '',
+        dueTime: dueTime || rectItem.dueTime,
+        assignedAt: now,
+        completedAt: '',
+        returnedReason: '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const id = await db.rectifications.add(rectRecord);
+      rectRecord.id = id;
+    }
+
+    if (rectRecord) {
+      dispatch({ type: rectItem._rectId ? 'UPDATE_RECTIFICATIONS' : 'ADD_RECTIFICATIONS', payload: rectItem._rectId ? [rectRecord] : [rectRecord] });
+    }
+  }, [state.materials, state.handoverItems]);
+
+  const updateRectificationProgress = useCallback(async (rectItem, progress, remark = '') => {
+    const now = new Date().toISOString();
+    const updates = {
+      rectificationProgress: progress,
+      rectificationRemark: remark || rectItem.remark,
+    };
+
+    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
+      await db.materials.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
+      await db.handoverItems.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    }
+
+    if (rectItem._rectId) {
+      const recordUpdate = {
+        progress,
+        remark: remark || rectItem.remark,
+        updatedAt: now,
+      };
+      await db.rectifications.update(rectItem._rectId, recordUpdate);
+      dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    }
+  }, [state.materials, state.handoverItems]);
+
+  const completeRectification = useCallback(async (rectItem, completionRemark = '') => {
+    const now = new Date().toISOString();
+    const updates = {
+      rectificationStatus: RECTIFICATION_STATUS.PENDING_REVIEW,
+      rectificationProgress: '已完成处理，待复核确认',
+      rectificationCompletedAt: now,
+    };
+    if (completionRemark) {
+      updates.rectificationRemark = completionRemark;
+    }
+
+    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
+      const material = state.materials.find(m => m.id === rectItem.sourceId);
+      if (material && rectItem.type === RECTIFICATION_TYPE.REVIEW) {
+        updates.status = MATERIAL_STATUS.PREPARING;
+      }
+      await db.materials.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
+      await db.handoverItems.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    }
+
+    if (rectItem._rectId) {
+      const recordUpdate = {
+        status: RECTIFICATION_STATUS.PENDING_REVIEW,
+        progress: '已完成处理，待复核确认',
+        completedAt: now,
+        remark: completionRemark || rectItem.remark,
+        updatedAt: now,
+      };
+      await db.rectifications.update(rectItem._rectId, recordUpdate);
+      dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    }
+  }, [state.materials, state.handoverItems]);
+
+  const confirmRectificationCompleted = useCallback(async (rectItem) => {
+    const now = new Date().toISOString();
+    const updates = {
+      rectificationStatus: RECTIFICATION_STATUS.COMPLETED,
+    };
+
+    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
+      const material = state.materials.find(m => m.id === rectItem.sourceId);
+      if (material) {
+        if (rectItem.type === RECTIFICATION_TYPE.SHORTAGE && material.preparedQty < material.requiredQty) {
+          updates.preparedQty = material.requiredQty;
+        }
+        if (rectItem.type === RECTIFICATION_TYPE.REVIEW && material.status === MATERIAL_STATUS.REVIEW) {
+          updates.status = MATERIAL_STATUS.READY;
+          if (material.preparedQty < material.requiredQty) {
+            updates.preparedQty = material.requiredQty;
+          }
+        }
+        if ((rectItem.type === RECTIFICATION_TYPE.FOLLOW_UP_OVERDUE || rectItem.type === RECTIFICATION_TYPE.FOLLOW_UP_PENDING)
+          && material.followUpStatus !== FOLLOW_UP_STATUS.COMPLETED) {
+          updates.followUpStatus = FOLLOW_UP_STATUS.COMPLETED;
+          updates.followUpCompletedAt = now;
+        }
+      }
+      await db.materials.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
+      const hi = state.handoverItems.find(h => h.id === rectItem.sourceId);
+      if (hi && !hi.confirmed) {
+        updates.confirmed = true;
+        const handover = state.handovers.find(h => h.id === hi.handoverId);
+        if (handover && handover.status === HANDOVER_STATUS.DRAFT) {
+          await db.handovers.update(hi.handoverId, { status: HANDOVER_STATUS.IN_PROGRESS });
+          dispatch({ type: 'UPDATE_HANDOVER', payload: { id: hi.handoverId, status: HANDOVER_STATUS.IN_PROGRESS } });
+        }
+        const material = state.materials.find(m => m.id === hi.materialId);
+        if (material) {
+          const confQty = hi.confirmedPreparedQty ?? material.preparedQty;
+          const matUpdates = {};
+          if (confQty >= material.requiredQty) {
+            matUpdates.status = MATERIAL_STATUS.READY;
+          } else if (material.status !== MATERIAL_STATUS.SHORTAGE) {
+            matUpdates.status = MATERIAL_STATUS.PREPARING;
+          }
+          if (Object.keys(matUpdates).length > 0) {
+            await db.materials.update(hi.materialId, matUpdates);
+            dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: hi.materialId, ...matUpdates }] });
+          }
+        }
+      }
+      await db.handoverItems.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    }
+
+    if (rectItem._rectId) {
+      const recordUpdate = {
+        status: RECTIFICATION_STATUS.COMPLETED,
+        completedAt: now,
+        updatedAt: now,
+      };
+      await db.rectifications.update(rectItem._rectId, recordUpdate);
+      dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    }
+  }, [state.materials, state.handoverItems, state.handovers]);
+
+  const returnRectificationForReview = useCallback(async (rectItem, returnReason) => {
+    const now = new Date().toISOString();
+    const updates = {
+      rectificationStatus: RECTIFICATION_STATUS.IN_PROGRESS,
+      rectificationReturnedReason: returnReason || '',
+      rectificationCompletedAt: '',
+    };
+
+    if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.MATERIAL) {
+      await db.materials.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_MATERIALS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    } else if (rectItem.sourceType === RECTIFICATION_SOURCE_TYPE.HANDOVER_ITEM) {
+      await db.handoverItems.update(rectItem.sourceId, updates);
+      dispatch({ type: 'UPDATE_HANDOVER_ITEMS', payload: [{ id: rectItem.sourceId, ...updates }] });
+    }
+
+    if (rectItem._rectId) {
+      const recordUpdate = {
+        status: RECTIFICATION_STATUS.IN_PROGRESS,
+        returnedReason: returnReason || '',
+        completedAt: '',
+        updatedAt: now,
+      };
+      await db.rectifications.update(rectItem._rectId, recordUpdate);
+      dispatch({ type: 'UPDATE_RECTIFICATIONS', payload: [{ id: rectItem._rectId, ...recordUpdate }] });
+    }
+  }, [state.materials, state.handoverItems]);
+
+  const selectedRectification = useMemo(() => {
+    if (!state.selectedRectificationId) return null;
+    return rectificationItems.find(item => item.id === state.selectedRectificationId) || null;
+  }, [rectificationItems, state.selectedRectificationId]);
+
+  useEffect(() => {
+    if (!state.selectedRectificationQuery || rectificationItems.length === 0) return;
+    const query = state.selectedRectificationQuery;
+    let found = null;
+    if (query.materialId) {
+      found = rectificationItems.find(item => item.materialId === query.materialId);
+    } else if (query.id) {
+      found = rectificationItems.find(item => item.id === query.id);
+    }
+    if (found) {
+      dispatch({ type: 'SET_SELECTED_RECTIFICATION', payload: found.id });
+    }
+    dispatch({ type: 'SET_SELECTED_RECTIFICATION_QUERY', payload: null });
+  }, [rectificationItems, state.selectedRectificationQuery]);
+
   const value = {
     state,
     dispatch,
@@ -908,6 +1523,11 @@ export function AppProvider({ children }) {
     groupedMaterials,
     summary,
     riskAnalysis,
+    rectificationItems,
+    filteredRectificationItems,
+    rectificationSummary,
+    groupedRectifications,
+    selectedRectification,
     updateMaterial,
     updateMaterialField,
     bulkUpdateStatus,
@@ -923,6 +1543,11 @@ export function AppProvider({ children }) {
     deleteHandover,
     getHandoverWithItems,
     currentHandover,
+    assignRectification,
+    updateRectificationProgress,
+    completeRectification,
+    confirmRectificationCompleted,
+    returnRectificationForReview,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

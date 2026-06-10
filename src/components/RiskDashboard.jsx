@@ -390,7 +390,7 @@ function RiskMeetingList() {
   );
 }
 
-function SuggestedAction({ type, material, onViewDetail, onCreateHandover }) {
+function SuggestedAction({ type, material, onViewDetail, onCreateHandover, onRectify }) {
   const actions = useMemo(() => {
     const result = [];
     const fStatus = getFollowUpStatus(material);
@@ -465,6 +465,21 @@ function SuggestedAction({ type, material, onViewDetail, onCreateHandover }) {
       ))}
       <div className="material-detail-actions">
         <button
+          className="btn btn-sm"
+          style={{
+            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+            color: '#fff',
+            border: 'none',
+          }}
+          onClick={() => {
+            if (typeof onRectify === 'function') {
+              onRectify(material);
+            }
+          }}
+        >
+          🔧 去整改
+        </button>
+        <button
           className="btn btn-sm btn-primary"
           onClick={() => onViewDetail(material)}
         >
@@ -486,7 +501,7 @@ function SuggestedAction({ type, material, onViewDetail, onCreateHandover }) {
   );
 }
 
-function RiskMaterialItem({ material, category, onViewDetail, onCreateHandover }) {
+function RiskMaterialItem({ material, category, onViewDetail, onCreateHandover, onRectify }) {
   const isShortage = material.preparedQty < material.requiredQty;
   const fStatus = getFollowUpStatus(material);
   const progress = material.requiredQty > 0
@@ -557,6 +572,7 @@ function RiskMaterialItem({ material, category, onViewDetail, onCreateHandover }
         material={material}
         onViewDetail={onViewDetail}
         onCreateHandover={onCreateHandover}
+        onRectify={onRectify}
       />
     </div>
   );
@@ -606,6 +622,15 @@ function RiskDetailPanel() {
     if (handoverId) {
       dispatch({ type: 'OPEN_HANDOVER_MODAL', payload: { handoverId } });
     }
+  };
+
+  const handleRectify = (material) => {
+    const meetingId = material.meetingId;
+    dispatch({ type: 'SET_RECTIFICATION_FILTERS', payload: { meetingIds: [meetingId] } });
+    dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.RECTIFICATION });
+    setTimeout(() => {
+      dispatch({ type: 'SET_SELECTED_RECTIFICATION_QUERY', payload: { materialId: material.id } });
+    }, 50);
   };
 
   if (!selectedRisk) {
@@ -700,7 +725,23 @@ function RiskDetailPanel() {
             {RISK_LEVEL_LABELS[riskLevel]} · {riskScore}分
           </span>
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {allRiskMaterials.length > 0 && (
+            <button
+              className="btn btn-sm"
+              style={{
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                color: '#fff',
+                border: 'none',
+              }}
+              onClick={() => {
+                dispatch({ type: 'SET_RECTIFICATION_FILTERS', payload: { meetingIds: [meeting.id] } });
+                dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.RECTIFICATION });
+              }}
+            >
+              🔧 整改此会议
+            </button>
+          )}
           {allRiskMaterials.length > 0 && (
             <button
               className="btn btn-sm btn-primary"
@@ -808,6 +849,7 @@ function RiskDetailPanel() {
                         category={category}
                         onViewDetail={handleViewDetail}
                         onCreateHandover={handleCreateHandover}
+                        onRectify={handleRectify}
                       />
                     );
                   })}
@@ -907,8 +949,11 @@ function RiskDetailPanel() {
 }
 
 export default function RiskDashboard() {
-  const { dispatch, riskAnalysis } = useApp();
+  const { dispatch, riskAnalysis, rectificationSummary } = useApp();
   const { summary } = riskAnalysis;
+  const rectPendingTotal = (rectificationSummary?.byStatus?.pending || 0) +
+    (rectificationSummary?.byStatus?.in_progress || 0) +
+    (rectificationSummary?.byStatus?.pending_review || 0);
 
   return (
     <div className="risk-dashboard">
@@ -929,6 +974,37 @@ export default function RiskDashboard() {
               共 {summary.totalMeetings} 场会议，{summary.riskMeetingsCount} 场存在风险
             </span>
           </h2>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            className="btn"
+            style={{
+              background: rectPendingTotal > 0
+                ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                : '#fffbeb',
+              color: rectPendingTotal > 0 ? '#fff' : '#92400e',
+              border: rectPendingTotal > 0 ? 'none' : '1px solid #fde68a',
+            }}
+            onClick={() => dispatch({ type: 'SET_CURRENT_VIEW', payload: RISK_VIEW.RECTIFICATION })}
+            title="前往整改闭环中心处理异常事项"
+          >
+            🔧 去整改闭环
+            {rectPendingTotal > 0 && (
+              <span
+                style={{
+                  marginLeft: '6px',
+                  padding: '1px 8px',
+                  borderRadius: '10px',
+                  background: rectPendingTotal > 0 ? 'rgba(255,255,255,0.25)' : '#fef3c7',
+                  color: rectPendingTotal > 0 ? '#fff' : '#92400e',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                }}
+              >
+                {rectPendingTotal}待处理
+              </span>
+            )}
+          </button>
         </div>
       </div>
 

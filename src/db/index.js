@@ -29,6 +29,16 @@ db.version(4).stores({
   handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty, followUpStatus, followUpNote, followUpOwner, followUpDueTime',
 });
 
+db.version(5).stores({
+  rooms: '++id, name, capacity',
+  categories: '++id, name, icon',
+  meetings: '++id, title, date, batch, roomId, personInCharge, timeSlot, status',
+  materials: '++id, meetingId, categoryId, name, requiredQty, preparedQty, shortageNote, status, roomId, personInCharge, batch, followUp, handoverRemark, followUpStatus, followUpNote, followUpOwner, followUpDueTime, followUpCompletedAt, rectificationStatus, rectificationOwner, rectificationProgress, rectificationRemark, rectificationAssignedAt, rectificationCompletedAt, rectificationReturnedReason',
+  handovers: '++id, title, createdAt, handoverTime, handoverPerson, receiverPerson, remark, status, sourceType, materialCount',
+  handoverItems: '++id, handoverId, materialId, confirmed, followUp, itemRemark, originalStatus, originalPreparedQty, confirmedPreparedQty, followUpStatus, followUpNote, followUpOwner, followUpDueTime, rectificationStatus, rectificationOwner, rectificationProgress, rectificationRemark, rectificationAssignedAt, rectificationCompletedAt, rectificationReturnedReason',
+  rectifications: '++id, sourceType, sourceId, materialId, meetingId, roomId, type, status, owner, creator, progress, remark, dueTime, assignedAt, completedAt, returnedReason, createdAt, updatedAt',
+});
+
 export function getLocalDatetimeLocal() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -156,6 +166,64 @@ export const RISK_FACTOR_LABELS = {
   follow_up_pending: '待跟进',
   review: '需复核',
   handover_incomplete: '交接未完成',
+};
+
+export const RECTIFICATION_TYPE = {
+  SHORTAGE: 'shortage',
+  REVIEW: 'review',
+  FOLLOW_UP_PENDING: 'follow_up_pending',
+  FOLLOW_UP_OVERDUE: 'follow_up_overdue',
+  HANDOVER_INCOMPLETE: 'handover_incomplete',
+};
+
+export const RECTIFICATION_TYPE_LABELS = {
+  shortage: '短缺',
+  review: '需复核',
+  follow_up_pending: '待跟进',
+  follow_up_overdue: '逾期跟进',
+  handover_incomplete: '交接未完成',
+};
+
+export const RECTIFICATION_TYPE_COLORS = {
+  shortage: '#ef4444',
+  review: '#8b5cf6',
+  follow_up_pending: '#f59e0b',
+  follow_up_overdue: '#dc2626',
+  handover_incomplete: '#7c3aed',
+};
+
+export const RECTIFICATION_TYPE_ICONS = {
+  shortage: '📦',
+  review: '🔍',
+  follow_up_pending: '⏩',
+  follow_up_overdue: '⏰',
+  handover_incomplete: '🤝',
+};
+
+export const RECTIFICATION_STATUS = {
+  PENDING: 'pending',
+  IN_PROGRESS: 'in_progress',
+  PENDING_REVIEW: 'pending_review',
+  COMPLETED: 'completed',
+};
+
+export const RECTIFICATION_STATUS_LABELS = {
+  pending: '待认领',
+  in_progress: '处理中',
+  pending_review: '待复核',
+  completed: '已完成',
+};
+
+export const RECTIFICATION_STATUS_COLORS = {
+  pending: '#94a3b8',
+  in_progress: '#3b82f6',
+  pending_review: '#f59e0b',
+  completed: '#10b981',
+};
+
+export const RECTIFICATION_SOURCE_TYPE = {
+  MATERIAL: 'material',
+  HANDOVER_ITEM: 'handover_item',
 };
 
 export function getFollowUpStatus(material) {
